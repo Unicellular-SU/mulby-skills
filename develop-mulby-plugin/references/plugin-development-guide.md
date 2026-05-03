@@ -140,7 +140,7 @@ Once the plugin behavior and theme are stable:
 
 - keep an editable source icon such as `assets/icon.svg`
 - generate a plugin-specific SVG that matches the plugin purpose and color palette
-- prefer the `generate-electron-icons` skill when it is available, or use an equivalent deterministic SVG-to-PNG workflow
+- run `scripts/finalize_plugin_icon.mjs` from this skill to convert the SVG into the packaged PNG
 - replace the scaffolded root `icon.png` with the final 512x512 export
 - keep `manifest.icon` aligned, usually as `icon.png`
 
@@ -217,8 +217,8 @@ Use this when the plugin code is done or the UI theme has clearly settled:
 
 1. Keep the editable icon source as SVG, for example `assets/icon.svg`.
 2. Ask the image model or design workflow to produce an SVG that matches the plugin function, tone, and color palette.
-3. Convert that SVG into the final 512x512 `icon.png`.
-4. Prefer the `generate-electron-icons` skill when it is available. If it is not, use an equivalent deterministic SVG-to-PNG workflow.
+3. Convert that SVG into the final 512x512 `icon.png` with `scripts/finalize_plugin_icon.mjs` from this skill.
+4. Use the bundled conversion script instead of depending on another skill.
 5. Copy the final PNG to the plugin root as `icon.png`, replacing the scaffold default.
 6. Leave `manifest.icon` pointed at `icon.png` unless the project intentionally uses another supported format.
 7. Before packaging, visually review the final icon against the plugin UI and confirm it is the file that will be bundled.

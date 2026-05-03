@@ -13,9 +13,11 @@
 - `SKILL.md`：插件开发工作流和交付检查清单
 - `references/cli-workflow.md`：插件创建、构建、打包命令
 - `references/plugin-development-guide.md`：插件开发规则和集成说明
+- `references/icon-workflow.md`：插件图标设计和转换流程
 - `references/api-map.md`：Mulby API 导航
 - `references/apis/`：各模块 API 文档
 - `scripts/invoke_mulby_cli.mjs`：跨平台调用 Mulby CLI 的脚本
+- `scripts/finalize_plugin_icon.mjs`：将插件 SVG 图标转为最终 `icon.png`
 
 ## `generate-electron-icons`
 

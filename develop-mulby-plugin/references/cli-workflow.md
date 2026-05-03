@@ -94,10 +94,10 @@ The output filename is `<manifest.name>-<manifest.version>.inplugin`.
 
 ## Icon Finalization
 
-- Keep an editable SVG source such as `assets/icon.svg` while the plugin feature set or theme is still changing.
-- Once the plugin direction is stable, generate a plugin-specific SVG that matches the plugin purpose and palette.
-- Prefer the `generate-electron-icons` skill when it is available. If it is not, use an equivalent deterministic SVG-to-PNG workflow.
-- Export the final 512x512 PNG and replace the scaffold default root `icon.png` before `mulby pack`.
+- Do not finalize icon art while the plugin feature set or UI theme is still changing.
+- Once the plugin direction is stable, create `assets/icon.svg` with artwork that matches the plugin purpose, tone, and palette.
+- Run `scripts/finalize_plugin_icon.mjs` from this skill to convert the SVG into a 512x512 root `icon.png`.
+- Replace the scaffold default root `icon.png` before `mulby pack`.
 - Keep `manifest.icon` pointing to `icon.png` unless the project intentionally uses another supported icon form.
 
 ## Practical Loop
@@ -106,6 +106,6 @@ The output filename is `<manifest.name>-<manifest.version>.inplugin`.
 2. Install dependencies in the plugin directory.
 3. Edit `manifest.json` and the real entry files.
 4. Run `npm run build`.
-5. After the plugin behavior or UI theme is stable, replace the scaffold default `icon.png` with the final 512x512 export.
+5. After the plugin behavior and UI theme are stable, create `assets/icon.svg` and run `scripts/finalize_plugin_icon.mjs` to replace the scaffold default `icon.png`.
 6. Run `npm run pack` when a distributable package is needed.
 7. Tell the user exactly how to validate the plugin inside Mulby.

@@ -31,10 +31,10 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
    - Implement one happy path that can actually be triggered inside Mulby.
    - Add extra features only after the minimum path is attachable.
 6. Finalize icon assets after the plugin direction is stable.
-   - Keep an editable SVG source such as `assets/icon.svg` while the plugin feature set or UI theme is still evolving.
-   - After the plugin function and visual theme are settled, generate a plugin-specific SVG icon that matches the feature purpose and color palette.
-   - Prefer the `generate-electron-icons` skill when it is available. Otherwise use an equivalent deterministic SVG-to-PNG workflow.
-   - Replace the scaffolded root `icon.png` with the final 512x512 export before packaging.
+   - Do not finalize icon art while the plugin feature set or UI theme is still evolving.
+   - After the plugin function and visual theme are settled, create an editable SVG source at `assets/icon.svg`.
+   - The SVG must be specific to the plugin purpose, visual tone, and UI color palette. Do not ship a generic placeholder mark.
+   - Run `scripts/finalize_plugin_icon.mjs` to render the SVG into the final 512x512 root `icon.png` before packaging.
 7. Validate before handoff.
    - Run `npm install` in the plugin directory when dependencies are missing.
    - Run build and pack commands when the task calls for a deliverable package.
@@ -47,6 +47,7 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 - Add `preload.cjs` only when Node.js or Electron bridging is required.
 - When `preload.cjs` exists, keep it in CommonJS and wire `manifest.preload` to the real file.
 - Keep editable icon source files as SVG during development; packaged plugins should normally end with a final root `icon.png`.
+- Use this skill's own `scripts/finalize_plugin_icon.mjs` for plugin icon conversion. Do not depend on another skill for plugin icon finalization.
 - Do not create preview-only HTML files such as `preview.html` or `demo.html`.
 - Avoid watch mode or long-running dev commands unless the user explicitly asks for them.
 - When the plugin backend imports npm packages that fail with esbuild bundling (native addons like `sharp`, packages using `createRequire` like `svgo`), externalize them individually with `--external:packagename`. Do not use `--packages=external` for plugins that will be packaged as `.inplugin` because `mulby pack` does not ship `node_modules`.
@@ -56,6 +57,7 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 
 - Read [references/cli-workflow.md](references/cli-workflow.md) when you need exact `create`, `build`, or `pack` behavior, or when you need to know what each template generates.
 - Read [references/plugin-development-guide.md](references/plugin-development-guide.md) when you need the full integration checklist, manifest rules, and preload constraints.
+- Read [references/icon-workflow.md](references/icon-workflow.md) when icon design, SVG source creation, or `icon.png` conversion is in scope.
 - Read [references/api-map.md](references/api-map.md) when you need a bundled Mulby API navigator and module selection guide.
 - Read [references/apis/README.md](references/apis/README.md) first when a task depends on specific Mulby APIs, then open the relevant `references/apis/*.md` files for exact module details.
 - Read [references/apis/tools.md](references/apis/tools.md) when the plugin needs to expose tools for AI Agent integration.
@@ -69,7 +71,7 @@ Before claiming completion, verify all of the following when applicable:
 - If `manifest.tools` is declared, every tool has a matching handler registered in `onLoad`.
 - `main`, `ui`, and `preload` paths point to files that exist.
 - `preload.cjs` is only present when needed and stays CommonJS.
-- If icon work is in scope, an editable SVG source is kept and the scaffold default `icon.png` has been replaced with the final 512x512 export.
+- If icon work is in scope, `assets/icon.svg` reflects the settled plugin function and UI theme, and the scaffold default `icon.png` has been replaced by the 512x512 output from `scripts/finalize_plugin_icon.mjs`.
 - `npm run build` succeeds.
 - `npm run pack` succeeds when a package is requested.
 - `README.md` has been updated to document the plugin's functionality, usage instructions, and any configuration options. Include at minimum: plugin description, supported features/commands, usage examples, and any prerequisites or dependencies.
