@@ -54,7 +54,7 @@ Do not keep old globals unless you deliberately add a small compatibility wrappe
 | `utools.showSaveDialog(...)` | `window.mulby.dialog.showSaveDialog(...)` / `context.api.dialog.showSaveDialog(...)` | Supported |
 | `utools.shellOpenPath(path)` | `window.mulby.shell.openPath(path)` / `context.api.shell.openPath(path)` | Supported if shell API exposes the method |
 | `utools.shellOpenExternal(url)` | `window.mulby.shell.openExternal(url)` / `context.api.shell.openExternal(url)` | Supported if shell API exposes the method |
-| `utools.dbStorage.*` | `window.mulby.storage.*` / `context.api.storage.*` | Partial; KV storage exists, method names and sync/async behavior differ |
+| `utools.dbStorage.*` | `window.mulby.storage.*` / `context.api.storage.*` | Partial; KV storage exists, method names and sync/async behavior differ. **Note: All backend `context.api.storage.*` calls return Promises and must be awaited.** |
 | `utools.db.*` document DB | `storage` APIs if simple KV/list data is enough | Partial; revision/document DB semantics are a gap |
 | `utools.dbCryptoStorage.*` | Combine `security.encryptString/decryptString` with `storage` only when string encryption is enough | Partial; old encrypted storage object semantics are a gap |
 | `utools.screenCapture()` | `window.mulby.screen.screenCapture()` | Supported in renderer; backend has `capture`/`captureRegion`, not interactive region capture |
@@ -133,12 +133,13 @@ Example:
 
 ```ts
 export function createUtoolsCompat(mulby: typeof window.mulby) {
+  // 注意：后端所有 mulby.* 调用均返回 Promise，需要 await。这里仅为简易示例。
   return {
-    hideMainWindow: () => mulby.window.hide(),
-    showMainWindow: () => mulby.window.show(),
-    outPlugin: (isKill?: boolean) => mulby.plugin.outPlugin(isKill),
-    copyText: (text: string) => mulby.clipboard.writeText(text),
-    showNotification: (body: string) => mulby.notification.show(body),
+    hideMainWindow: async () => await mulby.window.hide(),
+    showMainWindow: async () => await mulby.window.show(),
+    outPlugin: async (isKill?: boolean) => await mulby.plugin.outPlugin(isKill),
+    copyText: async (text: string) => await mulby.clipboard.writeText(text),
+    showNotification: async (body: string) => await mulby.notification.show(body),
     dbCryptoStorage: unsupported('dbCryptoStorage')
   };
 }

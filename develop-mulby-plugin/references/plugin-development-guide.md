@@ -15,6 +15,9 @@ Mulby plugins run in an Electron multi-process environment.
 
 - `UI` means the renderer process and usually accesses APIs through `window.mulby.{module}`.
 - `Main` means the backend plugin process and usually accesses APIs through `context.api.{module}`.
+
+▎ Backend APIs are always async. The mulby global in the backend proxies all calls through IPC to the main process. Every
+▎ mulby.storage.*, mulby.features.*, mulby.notification.* etc. returns a Promise and must be awaited.
 - `preload.cjs` is only for bridging Node.js or Electron capabilities into UI code when direct access is not available.
 
 Keep responsibilities clear:
@@ -81,7 +84,7 @@ interface PluginContext {
   attachments?: Array<{ path?: string; name?: string; kind?: 'file' | 'image' }>;
 }
 
-export function onLoad() { /* Plugin Loaded */ }
+export async function onLoad() { /* Plugin Loaded, mulby.* calls need await */ }
 export function onUnload() { /* Plugin Unloaded */ }
 export function onEnable() { /* Plugin Enabled */ }
 export function onDisable() { /* Plugin Disabled */ }
