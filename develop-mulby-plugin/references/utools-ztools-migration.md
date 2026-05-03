@@ -64,13 +64,43 @@ Do not keep old globals unless you deliberately add a small compatibility wrappe
 | `utools.hideMainWindowTypeString(text)` | `window.mulby.input.hideMainWindowTypeString(text)` / backend input API | Supported |
 | `utools.ubrowser...` | `window.mulby.inbrowser...` | Partial; renderer-side only in current docs, compare chain methods |
 | `utools.ai(...)` | `window.mulby.ai...` / `context.api.ai...` if current docs support the needed call | Partial; verify against `apis/ai.md` |
-| `utools.registerTool(...)` | Declare `manifest.tools`, then register with `context.api.tools` in backend `onLoad()` | Supported with Mulby contract |
+| `utools.registerTool(...)` | Migrate logic to backend `src/main.ts` and use `context.api.tools.register()` inside `onLoad()` | Supported (Backend only) |
 | user payment/subscription APIs | No general Mulby equivalent in this skill docs | Gap; mark explicitly |
 | account/cloud sync APIs | No general Mulby equivalent in this skill docs | Gap; mark explicitly |
 
 Always verify method names in `references/apis/*.md`; this table is only a migration navigator.
 
 For any method not in this table, do not infer a Mulby API from the old name. Search the API docs first. If no exact or safe semantic match exists, leave a migration gap.
+
+## Migrating AI Tools (`utools.registerTool`)
+
+uTools and Mulby handle AI tool execution fundamentally differently, which is the most common cause of migration errors:
+
+1. **Execution Environment (Crucial Difference)**:
+   - **uTools**: Registered in the frontend (`preload.js` or main UI script).
+   - **Mulby**: Executed completely independently in the **backend utility process**. You **must** move your tool logic to the backend entry file (e.g., `src/main.ts`).
+2. **Registration Timing**: 
+   - **uTools**: Top-level of `preload.js`.
+   - **Mulby**: Inside the `onLoad(context)` hook of your backend `main.ts`. (Do not put it inside `run()` as AI calls bypass user UI interactions).
+3. **Progress Reporting**: 
+   - **uTools**: Provides `ctx.sendProgress` as the second argument.
+   - **Mulby**: The tool handler currently only receives the `args` object. Progress reporting for long tasks is a gap or requires alternative implementation.
+
+**uTools Example (`preload.js`):**
+```js
+utools.registerTool('say_hi', async (params, ctx) => {
+  return 'hi ' + params.name;
+});
+```
+
+**Mulby Example (`src/main.ts`):**
+```ts
+export function onLoad(context) {
+  context.api.tools.register('say_hi', async (params) => {
+    return 'hi ' + params.name;
+  });
+}
+```
 
 ## Manifest Conversion
 
