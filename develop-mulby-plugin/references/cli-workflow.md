@@ -83,7 +83,8 @@ The common packaging behavior is:
 
 - `mulby pack` requires `manifest.json`.
 - `mulby pack` also requires `dist/main.js`, so build first.
-- The archive always includes `manifest.json` and bundled backend output as `main.js`.
+- The archive always includes a packaged `manifest.json` whose `main` points to `main.js`.
+- The archive always includes bundled backend output as `main.js`.
 - It includes `ui/` when present.
 - It includes `icon.png` and `README.md` when present.
 - It includes `preload.cjs` when `manifest.preload` points to an existing file.
