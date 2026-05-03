@@ -1,6 +1,6 @@
 ---
 name: develop-mulby-plugin
-description: Create, modify, validate, and package Mulby plugins with the Mulby CLI and bundled Mulby plugin references. Use when a task involves scaffolding a Mulby plugin, choosing a React vs basic template, wiring `manifest.json` features to `src/main.ts` and UI or preload files, selecting Mulby host APIs, finalizing a themed plugin icon, or producing a `.inplugin` package.
+description: Create, convert, modify, validate, and package Mulby plugins with the Mulby CLI and bundled Mulby plugin references. Use when a task involves scaffolding a Mulby plugin, converting an existing React/Vue/Svelte/Vite/static frontend app into a Mulby plugin, porting uTools/zTools/Rubick-style plugins to Mulby APIs, choosing a React vs basic template, wiring `manifest.json` features to `src/main.ts` and UI or preload files, selecting Mulby host APIs, finalizing a themed plugin icon, or producing a `.inplugin` package.
 ---
 
 # Develop Mulby Plugin
@@ -11,13 +11,18 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 
 1. Start with recon.
    - Existing plugin: inspect `manifest.json`, `src/main.ts`, `src/ui/App.tsx` when UI exists, and `preload.cjs` when present.
+   - Existing frontend app: inspect `package.json`, build config, frontend entry, router mode, output directory, and whether the app actually needs Mulby APIs.
+   - uTools/zTools/Rubick-style plugin: inspect old `plugin.json`/manifest, preload, UI entry, lifecycle hooks, and all old host API calls.
    - New plugin: choose the correct template before creating files.
 2. Pick the template deliberately.
+   - If the user already has a working React, Vue, Svelte, or other frontend app, do not force it into the Mulby template. Read [references/existing-frontend-conversion.md](references/existing-frontend-conversion.md) and convert it in place.
+   - If the source is a uTools/zTools/Rubick-style plugin, read [references/utools-ztools-migration.md](references/utools-ztools-migration.md) and migrate old host APIs to real Mulby APIs.
    - Use `react` for any visible UI, detached window, routed interface, or richer interactive flow.
    - Use `basic` for command-only, silent, or background-first plugins with no frontend.
 3. Scaffold with the local CLI.
    - Read [references/cli-workflow.md](references/cli-workflow.md) for exact commands.
    - Prefer the bundled wrapper `scripts/invoke_mulby_cli.mjs`. It is cross-platform and can use a local install, a global `mulby`, or `npx mulby-cli`.
+   - Treat Mulby CLI as template, build, and pack tooling only. Do not depend on or modify its AI generation flow for this skill.
    - Do not use `mulby create --ai` when you are already the AI agent doing the work.
 4. Lock the plugin contract before major edits.
    - Define every `features[].code`.
@@ -44,6 +49,9 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 
 - Treat `manifest.json` as the plugin contract and source of truth.
 - Keep `features` intentional. Do not leave template placeholders behind.
+- Existing frontend apps can be valid Mulby plugins without using Mulby APIs. They still need `manifest.json`, a minimal backend `main`, a local `ui/index.html` build output, and an intentional trigger.
+- For uTools/zTools/Rubick migrations, replace old host APIs with Mulby APIs. If Mulby does not support an old capability, mark it explicitly in code and README instead of silently dropping it.
+- Do not edit `mulby-cli` AI prompts, sessions, or validation to solve plugin conversion tasks. The portable skill should guide any AI tool directly.
 - Add `preload.cjs` only when Node.js or Electron bridging is required.
 - When `preload.cjs` exists, keep it in CommonJS and wire `manifest.preload` to the real file.
 - Keep editable icon source files as SVG during development; packaged plugins should normally end with a final root `icon.png`.
@@ -57,6 +65,8 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 
 - Read [references/cli-workflow.md](references/cli-workflow.md) when you need exact `create`, `build`, or `pack` behavior, or when you need to know what each template generates.
 - Read [references/plugin-development-guide.md](references/plugin-development-guide.md) when you need the full integration checklist, manifest rules, and preload constraints.
+- Read [references/existing-frontend-conversion.md](references/existing-frontend-conversion.md) when converting an existing React, Vue, Svelte, Vite, or static frontend app into a Mulby plugin.
+- Read [references/utools-ztools-migration.md](references/utools-ztools-migration.md) when porting uTools, zTools, Rubick-like, or other launcher-plugin ecosystems to Mulby.
 - Read [references/icon-workflow.md](references/icon-workflow.md) when icon design, SVG source creation, or `icon.png` conversion is in scope.
 - Read [references/api-map.md](references/api-map.md) when you need a bundled Mulby API navigator and module selection guide.
 - Read [references/apis/README.md](references/apis/README.md) first when a task depends on specific Mulby APIs, then open the relevant `references/apis/*.md` files for exact module details.
@@ -70,6 +80,8 @@ Before claiming completion, verify all of the following when applicable:
 - Every `feature.code` maps to real handling logic.
 - If `manifest.tools` is declared, every tool has a matching handler registered in `onLoad`.
 - `main`, `ui`, and `preload` paths point to files that exist.
+- For converted frontend apps, the build creates both `dist/main.js` and `ui/index.html`, and asset URLs work under `file://`.
+- For old ecosystem migrations, all `utools`/`ztools`/`rubick` API calls are either replaced with documented Mulby APIs or listed as migration gaps.
 - `preload.cjs` is only present when needed and stays CommonJS.
 - If icon work is in scope, `assets/icon.svg` reflects the settled plugin function and UI theme, and the scaffold default `icon.png` has been replaced by the 512x512 output from `scripts/finalize_plugin_icon.mjs`.
 - `npm run build` succeeds.

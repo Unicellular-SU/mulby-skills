@@ -7,6 +7,7 @@ Use this reference as the navigator for the bundled Mulby API docs under `refere
 - Start with `references/plugin-development-guide.md` for Mulby-specific plugin architecture, lifecycle, and preload rules.
 - Read `references/apis/manifest.md` for full `manifest.json` schema, run mode settings, and configuration details.
 - Read `references/apis/README.md` when you need the complete API catalog.
+- Read `references/utools-ztools-migration.md` when replacing old uTools/zTools/Rubick APIs with Mulby APIs.
 - Open only the specific module files you need after that.
 
 ## Contexts

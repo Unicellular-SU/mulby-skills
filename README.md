@@ -7,12 +7,16 @@
 用于创建、修改、验证和打包 Mulby 插件。
 
 这个 skill 会指导 AI 选择插件模板、设计 `manifest.json`、实现后端或 UI、选择 Mulby API、处理插件图标，并在交付前完成构建和打包检查。
+也支持把已有 React、Vue、Svelte、Vite 或静态前端项目转换成 Mulby 插件。
+还支持把 uTools、zTools、Rubick 等生态的旧插件迁移到 Mulby，并标注无法映射的 API 缺口。
 
 主要内容：
 
 - `SKILL.md`：插件开发工作流和交付检查清单
 - `references/cli-workflow.md`：插件创建、构建、打包命令
 - `references/plugin-development-guide.md`：插件开发规则和集成说明
+- `references/existing-frontend-conversion.md`：已有前端项目转换为 Mulby 插件
+- `references/utools-ztools-migration.md`：uTools/zTools/Rubick 插件迁移和 API 替换规则
 - `references/icon-workflow.md`：插件图标设计和转换流程
 - `references/api-map.md`：Mulby API 导航
 - `references/apis/`：各模块 API 文档

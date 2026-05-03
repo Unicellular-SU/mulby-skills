@@ -6,6 +6,8 @@ For full Mulby-specific details, also read:
 
 - `references/apis/README.md`
 - the specific files under `references/apis/*.md` that match the capability you need
+- `references/existing-frontend-conversion.md` when adapting an existing frontend app
+- `references/utools-ztools-migration.md` when porting plugins from uTools, zTools, Rubick-like, or other launcher-plugin ecosystems
 
 ## Architecture
 
@@ -56,6 +58,18 @@ my-plugin/
 |  `- icon.svg
 ```
 
+For existing frontend apps, do not force this exact source layout. The required packaged outputs are:
+
+```text
+my-existing-app/
+|- manifest.json
+|- icon.png
+|- dist/
+|  `- main.js              # required backend entry, can be minimal
+`- ui/
+   `- index.html           # built frontend entry loaded by Mulby
+```
+
 ## Entry Points & Patterns
 
 **Backend (`src/main.ts`)**:
@@ -104,6 +118,10 @@ Before changing implementation details:
 
 For a new plugin, decide the template first, then inspect the scaffold before adding complexity.
 
+For an existing React/Vue/Svelte/static frontend app, inspect `package.json`, build config, router mode, HTML entry, output directory, and asset paths before adding Mulby files. See `references/existing-frontend-conversion.md`.
+
+For uTools/zTools/Rubick-style plugins, inspect the old plugin manifest, preload, UI entry, lifecycle hooks, and every old host API call before rewriting. Replace old host APIs with real Mulby APIs and record unsupported behavior. See `references/utools-ztools-migration.md`.
+
 ### Phase 1: Define the Plugin Contract
 
 Lock down the contract before major coding:
@@ -124,6 +142,20 @@ Implement one end-to-end path first:
 - `src/main.ts` handles the real feature entry
 - UI plugins have a usable `src/ui/App.tsx`
 - `preload.cjs` is only added when bridging is required
+
+For converted frontend apps, the minimum runnable path is:
+
+- `manifest.main` points to `dist/main.js`
+- `manifest.ui` points to `ui/index.html`
+- `features[].cmds` has at least one trigger
+- the frontend build uses relative asset URLs and opens from `file://`
+- the UI can ignore `window.mulby` when no host APIs are needed
+
+For old launcher-plugin ecosystem ports, the minimum runnable path also includes:
+
+- old `utools`/`ztools`/`rubick` calls are replaced or isolated behind a small compatibility wrapper
+- wrapper methods throw or warn for unsupported capabilities
+- README documents migration gaps instead of claiming full compatibility
 
 ### Phase 3: Expand Features
 

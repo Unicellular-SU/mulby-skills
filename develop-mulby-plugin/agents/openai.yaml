@@ -1,4 +1,4 @@
 interface:
   display_name: "Develop Mulby Plugin"
-  short_description: "Scaffold, brand, and ship Mulby plugins with local CLI."
-  default_prompt: "Use $develop-mulby-plugin to scaffold, implement, finalize the plugin icon, validate, and package a Mulby plugin with the local CLI and API docs."
+  short_description: "Scaffold, convert, port, brand, and ship Mulby plugins."
+  default_prompt: "Use $develop-mulby-plugin to scaffold a Mulby plugin, convert an existing frontend app, or port a uTools/zTools/Rubick-style plugin to Mulby APIs. Implement the plugin contract, replace supported host APIs, mark unsupported migration gaps, finalize the plugin icon, validate, and package it with the local CLI and API docs."

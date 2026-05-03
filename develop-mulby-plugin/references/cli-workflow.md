@@ -37,7 +37,17 @@ mulby pack
 
 Do not use `mulby create --ai` for this skill. The point of this skill is that the current agent already handles the implementation.
 
+Treat Mulby CLI as a narrow utility:
+
+- `create` scaffolds a basic or React template for new plugins.
+- `build` bundles `src/main.ts` and may run a Vite UI build for template-style projects.
+- `pack` creates the `.inplugin` archive.
+
+Do not rely on or change Mulby CLI's AI generation flow when converting an existing project. The skill instructions are the source of truth for AI-assisted conversion.
+
 ## Template Selection
+
+Do not scaffold over an existing working frontend app. For React, Vue, Svelte, Vite, or static apps that already exist, convert the project in place and read `references/existing-frontend-conversion.md`.
 
 Choose `react` when the plugin needs:
 
@@ -74,6 +84,8 @@ The common build behavior is:
 - `mulby build` requires `manifest.json`.
 - Backend build bundles `src/main.ts` into `dist/main.js` with esbuild.
 - UI build only runs when `manifest.ui` exists and `vite.config.ts` is present.
+- Existing frontend projects may keep their own build command, but the final plugin build must create `dist/main.js` and `ui/index.html`.
+- For Vite apps loaded by Mulby, use relative asset URLs (`base: './'`) and output the frontend bundle to the root `ui/` directory.
 
 The generated plugin templates already wire `npm run build` to the expected build steps, so prefer `npm run build` inside the plugin project unless you specifically need to exercise the CLI command path.
 
