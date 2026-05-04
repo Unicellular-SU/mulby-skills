@@ -54,7 +54,7 @@ Do not keep old globals unless you deliberately add a small compatibility wrappe
 | `utools.showSaveDialog(...)` | `window.mulby.dialog.showSaveDialog(...)` / `context.api.dialog.showSaveDialog(...)` | Supported |
 | `utools.shellOpenPath(path)` | `window.mulby.shell.openPath(path)` / `context.api.shell.openPath(path)` | Supported if shell API exposes the method |
 | `utools.shellOpenExternal(url)` | `window.mulby.shell.openExternal(url)` / `context.api.shell.openExternal(url)` | Supported if shell API exposes the method |
-| `utools.dbStorage.*` | `window.mulby.storage.*` / `context.api.storage.*` | Partial; KV storage exists, method names and sync/async behavior differ. **Note: All backend `context.api.storage.*` calls return Promises and must be awaited.** |
+| `utools.dbStorage.*` | `window.mulby.storage.*` / `context.api.storage.*` | Partial; KV storage exists, method names and sync/async behavior differ |
 | `utools.db.*` document DB | `storage` APIs if simple KV/list data is enough | Partial; revision/document DB semantics are a gap |
 | `utools.dbCryptoStorage.*` | Combine `security.encryptString/decryptString` with `storage` only when string encryption is enough | Partial; old encrypted storage object semantics are a gap |
 | `utools.screenCapture()` | `window.mulby.screen.screenCapture()` | Supported in renderer; backend has `capture`/`captureRegion`, not interactive region capture |
@@ -64,43 +64,20 @@ Do not keep old globals unless you deliberately add a small compatibility wrappe
 | `utools.hideMainWindowTypeString(text)` | `window.mulby.input.hideMainWindowTypeString(text)` / backend input API | Supported |
 | `utools.ubrowser...` | `window.mulby.inbrowser...` | Partial; renderer-side only in current docs, compare chain methods |
 | `utools.ai(...)` | `window.mulby.ai...` / `context.api.ai...` if current docs support the needed call | Partial; verify against `apis/ai.md` |
-| `utools.registerTool(...)` | Migrate logic to backend `src/main.ts` and use `context.api.tools.register()` inside `onLoad()` | Supported (Backend only) |
+| `utools.registerTool(...)` | Declare `manifest.tools`, then register with `context.api.tools` in backend `onLoad()` | Supported with Mulby contract |
+| ZTools/uTools 原生鼠标/键盘 hook | `window.mulby.inputMonitor` / `context.api.inputMonitor` | Supported; 需声明 `permissions.inputMonitor`，macOS 需辅助功能权限 |
+| `ztools.createBrowserWindow(url, opts)` overlay 透明窗口 | `window.mulby.window.create(url, { transparent: true, ignoreMouseEvents: true, ... })` | Supported; 详见 `apis/window.md` Overlay 章节 |
+| `win.setIgnoreMouseEvents(true)` | 创建时 `ignoreMouseEvents: true, forwardMouseEvents: true`，或运行时 `child.setIgnoreMouseEvents(true, { forward: true })` | Supported; CSS `pointer-events: none` 不能替代 |
+| `win.setAlwaysOnTop(true, 'screen-saver')` | 创建时 `alwaysOnTop: true, alwaysOnTopLevel: 'screen-saver'`，或运行时 `child.setAlwaysOnTop(true, 'screen-saver')` | Supported |
+| `win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` | 创建时 `visibleOnAllWorkspaces: true, visibleOnFullScreen: true`，或运行时 `child.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` | Supported |
+| `win.showInactive()` | 创建时 `focusable: false` 自动使用 `showInactive()`，或运行时 `child.showInactive()` | Supported |
+| `display.bounds` 多屏/缩放坐标 | `window.mulby.screen.getAllDisplays()` / `getPrimaryDisplay()` / `getDisplayNearestPoint()` | Supported; 详见 `apis/screen.md` |
 | user payment/subscription APIs | No general Mulby equivalent in this skill docs | Gap; mark explicitly |
 | account/cloud sync APIs | No general Mulby equivalent in this skill docs | Gap; mark explicitly |
 
 Always verify method names in `references/apis/*.md`; this table is only a migration navigator.
 
 For any method not in this table, do not infer a Mulby API from the old name. Search the API docs first. If no exact or safe semantic match exists, leave a migration gap.
-
-## Migrating AI Tools (`utools.registerTool`)
-
-uTools and Mulby handle AI tool execution fundamentally differently, which is the most common cause of migration errors:
-
-1. **Execution Environment (Crucial Difference)**:
-   - **uTools**: Registered in the frontend (`preload.js` or main UI script).
-   - **Mulby**: Executed completely independently in the **backend utility process**. You **must** move your tool logic to the backend entry file (e.g., `src/main.ts`).
-2. **Registration Timing**: 
-   - **uTools**: Top-level of `preload.js`.
-   - **Mulby**: Inside the `onLoad(context)` hook of your backend `main.ts`. (Do not put it inside `run()` as AI calls bypass user UI interactions).
-3. **Progress Reporting**: 
-   - **uTools**: Provides `ctx.sendProgress` as the second argument.
-   - **Mulby**: The tool handler currently only receives the `args` object. Progress reporting for long tasks is a gap or requires alternative implementation.
-
-**uTools Example (`preload.js`):**
-```js
-utools.registerTool('say_hi', async (params, ctx) => {
-  return 'hi ' + params.name;
-});
-```
-
-**Mulby Example (`src/main.ts`):**
-```ts
-export function onLoad(context) {
-  context.api.tools.register('say_hi', async (params) => {
-    return 'hi ' + params.name;
-  });
-}
-```
 
 ## Manifest Conversion
 
@@ -163,13 +140,12 @@ Example:
 
 ```ts
 export function createUtoolsCompat(mulby: typeof window.mulby) {
-  // 注意：后端所有 mulby.* 调用均返回 Promise，需要 await。这里仅为简易示例。
   return {
-    hideMainWindow: async () => await mulby.window.hide(),
-    showMainWindow: async () => await mulby.window.show(),
-    outPlugin: async (isKill?: boolean) => await mulby.plugin.outPlugin(isKill),
-    copyText: async (text: string) => await mulby.clipboard.writeText(text),
-    showNotification: async (body: string) => await mulby.notification.show(body),
+    hideMainWindow: () => mulby.window.hide(),
+    showMainWindow: () => mulby.window.show(),
+    outPlugin: (isKill?: boolean) => mulby.plugin.outPlugin(isKill),
+    copyText: (text: string) => mulby.clipboard.writeText(text),
+    showNotification: (body: string) => mulby.notification.show(body),
     dbCryptoStorage: unsupported('dbCryptoStorage')
   };
 }

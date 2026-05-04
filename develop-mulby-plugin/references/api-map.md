@@ -71,6 +71,11 @@ Use this reference as the navigator for the bundled Mulby API docs under `refere
 - Global shortcuts and input capture
   - `references/apis/shortcut.md`
   - `references/apis/input.md`
+  - `references/apis/input-monitor.md`
+- Overlay windows, mouse passthrough, screen recording overlays
+  - `references/apis/window.md` (Overlay 窗口创建选项 + child handle)
+  - `references/apis/input-monitor.md` (全局鼠标/键盘事件)
+  - `references/apis/screen.md` (显示器信息 + 坐标转换)
 - Media, Image & Audio capabilities
   - `references/apis/media.md`
   - `references/apis/ffmpeg.md`
