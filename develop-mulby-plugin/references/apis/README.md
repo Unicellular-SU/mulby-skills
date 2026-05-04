@@ -1,6 +1,6 @@
 # Mulby API 接口参考（代码对齐）
 
-> 最后更新：2026-04-28
+> 最后更新：2026-05-04
 > 对齐基准：`src/preload/apis/*.ts`、`src/main/plugin/api.ts`、`src/main/ipc/index.ts`；自动校验命令：`npm run check:api-docs`（已接入 CI 的 `verify:app`）
 
 ## 系统与应用
@@ -32,6 +32,7 @@
 - [剪贴板 API (clipboard)](./clipboard.md)
 - [剪贴板历史 API (clipboardHistory)](./clipboard-history.md)
 - [输入 API (input)](./input.md)
+- [全局输入监听 API (inputMonitor)](./input-monitor.md)
 
 ## 插件与调度
 - [插件管理 API (plugin)](./plugin.md)

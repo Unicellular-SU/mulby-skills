@@ -33,6 +33,7 @@
 | --- | --- | --- |
 | `runCommand` | `boolean` | 允许插件调用受策略保护的命令执行能力。 |
 | `webview` | `boolean` | 允许插件 UI 使用 Electron `<webview>` 作为普通远程网页容器。宿主只会对声明为 `true` 的插件开启 `webviewTag`，并会移除 guest preload、关闭 Node 集成。 |
+| `inputMonitor` | `boolean` | 允许插件调用全局输入监听 API（鼠标点击轨迹、键盘按键监听）。macOS 需辅助功能权限，首次使用时自动引导授权。详见 [全局输入监听 API](./input-monitor.md)。 |
 | `envKeys` | `string[] \| "*"` | `runCommand` 继承环境变量的额外白名单。仅在 `runCommand: true` 时生效。 |
 
 插件前端可通过 `window.mulby.onPluginInit()` 读取宿主暴露的能力状态：
@@ -57,7 +58,7 @@ window.mulby.onPluginInit((data) => {
 | `mode` | `'ui' \| 'silent' \| 'detached'` | 否 | 运行模式：`ui` 渲染到搜索框、`silent` 后台静默执行、`detached` 以独立窗口运行。 |
 | `route` | `string` | 否 | 如果运行模式包含 UI，此字段可设置加载的路由（React前端对应路由）。 |
 | `icon` | `PluginIcon` | 否 | 特性独享的图标，覆盖全局 `icon`。 |
-| `mainPush` | `boolean` | 否 | 是否在触发时将特定内容推送给输入框。 |
+| `mainPush` | `boolean` | 否 | 启用搜索框推送：匹配时查询后端的 `onMainPush` 回调获取动态选项。详见 [动态指令 API](./features.md) 的 MainPush 章节。 |
 | `mainHide` | `boolean` | 否 | 触发该功能模块后，是否隐藏 Mulby 超级面板主窗口。 |
 | `preCapture` | `'region' \| 'fullscreen'` | 否 | 触发插件功能前先进行屏幕截图（部分区域或全屏），并将截图作为附件(attachment)传给插件。 |
 
