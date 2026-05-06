@@ -236,6 +236,7 @@ Example `manifest.json`:
   - `width`, `height`, `minWidth`, `minHeight`, `maxWidth`, `maxHeight`: size constraints
   - `opacity`: initial window opacity (0.0 ~ 1.0, adjustable at runtime via `window.mulby.window.setOpacity()`)
   - `transparent`: enable window background transparency (combine with CSS `background: transparent` for see-through areas, only effective at creation time)
+  - `skipTaskbar`: request hiding the individual window from taskbar/Dock where supported. On macOS, Mulby may still show the app-level Dock icon while detached plugin windows exist.
 - `tools`: optional AI tool declarations (see Plugin Tools section below)
 - `features`
 
@@ -245,6 +246,14 @@ Example `manifest.json`:
 - **`default`** (default): Standard detached window with Mulby-injected titlebar (pin, minimize, maximize, close buttons).
 - **`borderless`**: No frame or titlebar. Plugin UI must handle dragging with CSS `-webkit-app-region: drag` and closing via `window.mulby.window.close()`.
 - **`fullscreen`**: Window fills the primary screen work area. No titlebar injected. Suitable for immersive tools like screenshot editors or canvas apps.
+
+### macOS Dock Behavior For Detached Windows
+
+Detached plugin windows use Mulby's app-level Dock icon on macOS. When plugin windows are present, the Dock icon may be composed from the host icon and the most recently focused plugin icon. Multiple plugin windows are represented with a count badge.
+
+The Dock context menu can expose plugin-window actions such as focus, close, and close all. The system Dock Quit action still quits the Mulby host app; plugin-only shutdown should be done through plugin window actions or the plugin UI.
+
+Do not rely on `skipTaskbar` to hide Mulby's macOS Dock icon. It only requests hiding a specific window's native taskbar/Dock representation where supported.
 
 ## Icon Workflow
 
