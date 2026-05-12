@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
+const IS_WIN = process.platform === 'win32';
 const args = process.argv.slice(2);
 
 if (args.length === 0) {
@@ -18,7 +19,7 @@ try {
     cwd: process.cwd(),
     env: process.env,
     stdio: 'inherit',
-    shell: false,
+    shell: strategy.shell,
   });
 
   if (result.error) {
@@ -38,6 +39,7 @@ function resolveStrategy(startDir) {
     return {
       command: process.execPath,
       prefixArgs: [resolve(envEntry)],
+      shell: false,
     };
   }
 
@@ -46,6 +48,7 @@ function resolveStrategy(startDir) {
     return {
       command: envBin,
       prefixArgs: [],
+      shell: IS_WIN,
     };
   }
 
@@ -54,7 +57,7 @@ function resolveStrategy(startDir) {
       dir,
       'node_modules',
       '.bin',
-      process.platform === 'win32' ? 'mulby.cmd' : 'mulby',
+      IS_WIN ? 'mulby.cmd' : 'mulby',
     );
     return existsSync(candidate) ? candidate : null;
   });
@@ -63,6 +66,7 @@ function resolveStrategy(startDir) {
     return {
       command: localBin,
       prefixArgs: [],
+      shell: IS_WIN,
     };
   }
 
@@ -70,13 +74,15 @@ function resolveStrategy(startDir) {
     return {
       command: 'mulby',
       prefixArgs: [],
+      shell: IS_WIN,
     };
   }
 
-  if (canRun('npx', ['--yes', 'mulby-cli@latest', '--version'])) {
+  if (canRun('npx', ['--version'])) {
     return {
       command: 'npx',
       prefixArgs: ['--yes', 'mulby-cli@latest'],
+      shell: IS_WIN,
     };
   }
 
@@ -96,7 +102,7 @@ function canRun(command, probeArgs) {
     cwd: process.cwd(),
     env: process.env,
     stdio: 'ignore',
-    shell: false,
+    shell: IS_WIN,
   });
 
   if (result.error) {
