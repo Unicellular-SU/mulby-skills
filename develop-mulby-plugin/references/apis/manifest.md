@@ -184,7 +184,7 @@ mulby.tools.register('long_task', async (args, ctx) => {
 | --- | --- | --- |
 | `single` | `boolean` | 是否只允许单例运行。默认 `true`。 |
 | `defaultDetached` | `boolean` | 是否默认让此插件以独立窗口运行。默认 `false`。用户也可以在插件菜单中勾选“始终以独立窗口运行”，该用户偏好优先于 manifest 默认值。 |
-| `background` | `boolean` | 是否允许本插件在后台保留运行（适用于消息监听、常驻定时调度等）。它只表示能力，不会让插件随 Mulby 启动自动运行；跟随启动由用户在插件窗口菜单或搜索结果右键菜单中勾选。 |
+| `background` | `boolean` | 是否允许本插件在后台保留运行（适用于消息监听、常驻定时调度等）。它只表示能力，不会让插件随 Mulby 启动自动运行；跟随启动由用户在插件窗口菜单或搜索结果右键菜单中勾选。勾选后 Mulby 会按插件能力启动：有后台则启动后台，有 UI 则隐藏缓存用户勾选时对应的 UI。 |
 | `persistent` | `boolean` | 是否在 Mulby 重启后恢复“上次退出前正在后台运行”的状态。仅在 `background: true` 时有效。 |
 | `height` | `number` | Mulby Super Panel 面板启动此 UI 插件时使用的预期高度。 |
 | `maxRuntime` | `number` | 限定最大运行时间（毫秒）。超时会自动终止进程。`0` 表示无限制。 |
@@ -221,9 +221,9 @@ mulby.tools.register('long_task', async (args, ctx) => {
 
 ### macOS Dock 表示
 
-独立窗口在 macOS 上使用 Mulby 的应用级 Dock 图标表示，而不是每个插件创建一个独立 app 图标。存在插件独立窗口时，Dock 图标会显示为“宿主图标 + 最近聚焦插件图标”的组合样式；存在多个插件独立窗口时，会显示数量徽标。独立系统页面会使用宿主图标。
+独立窗口在 macOS 上使用 Mulby 的应用级 Dock 图标表示，而不是每个插件创建一个独立 app 图标。存在插件独立窗口时，Dock 图标会显示为“宿主图标 + 最近聚焦插件图标”的组合样式；存在多个插件的独立窗口时，会按插件数量显示徽标。同一插件创建多个窗口时只占一个 Dock 表示。独立系统页面会使用宿主图标。
 
-Dock 右键菜单会提供插件窗口列表、关闭插件窗口、打开 Mulby 和退出 Mulby 等操作。系统 Dock 的“退出”语义仍然是退出宿主应用；只关闭插件应使用插件窗口菜单或插件 UI 的关闭动作。
+Dock 右键菜单会按插件聚合显示窗口项，并提供关闭插件窗口、打开 Mulby 和退出 Mulby 等操作。系统 Dock 的“退出”语义仍然是退出宿主应用；只关闭插件应使用插件窗口菜单或插件 UI 的关闭动作。
 
 `skipTaskbar` 不能作为隐藏 Mulby Dock 图标的开关。macOS 的 Dock 图标跟随应用级独立窗口状态，只要仍有需要表示的独立窗口，Mulby 可能保持 Dock 可见。
 
