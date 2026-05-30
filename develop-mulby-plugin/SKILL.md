@@ -71,6 +71,7 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 - Read [references/api-map.md](references/api-map.md) when you need a bundled Mulby API navigator and module selection guide.
 - Read [references/apis/README.md](references/apis/README.md) first when a task depends on specific Mulby APIs, then open the relevant `references/apis/*.md` files for exact module details.
 - Read [references/apis/tools.md](references/apis/tools.md) when the plugin needs to expose tools for AI Agent integration.
+- Read [references/drag-and-drop-sandbox-bypass-guide.md](references/drag-and-drop-sandbox-bypass-guide.md) when a plugin requires system drag-and-drop support or involves reading local file paths from drag events.
 
 ## Handoff Checklist
 
