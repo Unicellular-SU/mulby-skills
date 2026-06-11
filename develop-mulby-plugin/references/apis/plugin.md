@@ -264,6 +264,17 @@ await window.mulby.plugin.uninstall('translator');
 
 返回值：`{ success: boolean; error?: string }`
 
+### plugin.getDataStats(name)
+[Renderer]
+获取插件存储数据统计，供卸载确认时展示是否存在残留数据。`kvCount` 不含附件元数据键与加密项。
+
+```javascript
+const stats = await window.mulby.plugin.getDataStats('translator');
+// { kvCount: 12, encryptedCount: 1, attachmentCount: 3, attachmentBytes: 524288 }
+```
+
+返回值：`{ kvCount: number; encryptedCount: number; attachmentCount: number; attachmentBytes: number }`
+
 ### plugin.getReadme(name)
 [Renderer]
 获取插件 README 文本内容。
@@ -394,6 +405,14 @@ const result = await window.mulby.plugin.stopPlugin('my-plugin');
 
 ```javascript
 await window.mulby.plugin.prewarm('my-plugin');
+```
+
+### plugin.prewarmUi(pluginId, featureCode?, route?)
+[Renderer]
+对当前高亮的 UI 插件做投机预热：在用户真正打开前，提前初始化 Host 并创建隐藏的 resident 面板视图，使回车打开时直接走 resident「秒开」路径。仅对默认 attached、单实例的 UI 插件生效；命中失败会按 TTL/LRU 自动回收。`onLoad` 仍在真正运行时执行，不会提前产生副作用或重复触发。
+
+```javascript
+await window.mulby.plugin.prewarmUi('my-plugin', 'main');
 ```
 
 ### 完整示例
