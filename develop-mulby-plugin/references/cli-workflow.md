@@ -120,4 +120,4 @@ The output filename is `<manifest.name>-<manifest.version>.inplugin`.
 4. Run `npm run build`.
 5. After the plugin behavior and UI theme are stable, create `assets/icon.svg` and run `scripts/finalize_plugin_icon.mjs` to replace the scaffold default `icon.png`.
 6. Run `npm run pack` when a distributable package is needed.
-7. Tell the user exactly how to validate the plugin inside Mulby.
+7. Run `mulby verify` yourself to load and smoke-test the plugin inside Mulby (see `references/verify-plugin.md`); iterate until it reports `ok`. Only fall back to a manual user checklist if `mulby verify` cannot locate or launch Mulby.

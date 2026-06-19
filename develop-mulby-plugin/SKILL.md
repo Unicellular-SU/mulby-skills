@@ -40,10 +40,11 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
    - After the plugin function and visual theme are settled, create an editable SVG source at `assets/icon.svg`.
    - The SVG must be specific to the plugin purpose, visual tone, and UI color palette. Do not ship a generic placeholder mark.
    - Run `scripts/finalize_plugin_icon.mjs` to render the SVG into the final 512x512 root `icon.png` before packaging.
-7. Validate before handoff.
+7. Verify before handoff — test it yourself, do not just hand off a checklist.
    - Run `npm install` in the plugin directory when dependencies are missing.
-   - Run build and pack commands when the task calls for a deliverable package.
-   - Report exact Mulby-side checks the user should run manually.
+   - Run build, and pack when the task calls for a deliverable package.
+   - Run `mulby verify` yourself to load and smoke-test the plugin inside Mulby, then iterate (fix → rebuild → re-run) until the report is `ok`. Read [references/verify-plugin.md](references/verify-plugin.md).
+   - Only if `mulby verify` cannot locate or launch Mulby, fall back to giving the user a short manual acceptance checklist — and say plainly that automated verification did not run and why.
 
 ## Mulby Rules
 
@@ -64,6 +65,7 @@ Use this skill for both new Mulby plugins and existing plugin fixes. The goal is
 ## What To Read
 
 - Read [references/cli-workflow.md](references/cli-workflow.md) when you need exact `create`, `build`, or `pack` behavior, or when you need to know what each template generates.
+- Read [references/verify-plugin.md](references/verify-plugin.md) to test a finished plugin by driving Mulby with `mulby verify` (and the optional `mulby mcp` interactive loop), how to read the report and iterate, and when to fall back to a manual checklist.
 - Read [references/plugin-development-guide.md](references/plugin-development-guide.md) when you need the full integration checklist, manifest rules, and preload constraints.
 - Read [references/existing-frontend-conversion.md](references/existing-frontend-conversion.md) when converting an existing React, Vue, Svelte, Vite, or static frontend app into a Mulby plugin.
 - Read [references/utools-ztools-migration.md](references/utools-ztools-migration.md) when porting uTools, zTools, Rubick-like, or other launcher-plugin ecosystems to Mulby.
@@ -87,5 +89,6 @@ Before claiming completion, verify all of the following when applicable:
 - If icon work is in scope, `assets/icon.svg` reflects the settled plugin function and UI theme, and the scaffold default `icon.png` has been replaced by the 512x512 output from `scripts/finalize_plugin_icon.mjs`.
 - `npm run build` succeeds.
 - `npm run pack` succeeds when a package is requested.
+- `mulby verify` reports `ok` — load, trigger match, execution, and UI render all pass. Re-run after each fix until it passes.
 - `README.md` has been updated to document the plugin's functionality, usage instructions, and any configuration options. Include at minimum: plugin description, supported features/commands, usage examples, and any prerequisites or dependencies.
-- The user receives a short manual acceptance checklist for testing inside Mulby.
+- Only when `mulby verify` cannot run (Mulby not located/installed), the user receives a short manual acceptance checklist for testing inside Mulby, with a clear note that automated verification did not run.
