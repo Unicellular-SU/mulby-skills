@@ -7,7 +7,8 @@
 
 > 安全边界：
 > - 插件可使用 `ai.call`、`abort`、`allModels`、附件 `buffer` 上传、Token 估算与图片生成等调用型能力。
-> - 宿主管理能力（AI 设置、Provider 探测、MCP/Skills/WebSearch/插件工具管理）仅允许系统渲染窗口（主应用/设置页/首次引导页）调用。插件 UI 由于共享 preload 可能看到入口，但 IPC 层会拒绝。
+> - 宿主**管理/写入**能力仅允许系统渲染窗口（主应用/设置页/首次引导页）调用，插件 UI 由 IPC 层拒绝：AI 设置读写（`settings.get`/`update`）、Provider 探测与连接测试（`models.fetch`、`testConnection`/`testConnectionStream`）、MCP 服务器增删改与连通性/日志（`mcp.getServer`/`upsertServer`/`removeServer`/`activateServer`/`deactivateServer`/`restartServer`/`checkServer`/`abort`/`getLogs`）、Skills 安装/删除/启停/刷新（`skills.refresh`/`install`/`remove`/`enable`/`disable`）、WebSearch 全局配置读写（`tooling.webSearch.get`/`update`）、插件工具禁用写入（`tooling.pluginTools.setDisabled`）。
+> - 以下**只读发现 / 低敏切换**能力对插件 UI 开放（不含密钥与全局敏感配置）：`skills.list`/`listEnabled`/`get`/`preview`/`resolve`、`mcp.listServers`（返回脱敏视图）/`listTools`、`tooling.webSearch.getSettings`/`setActiveProvider`、`tooling.pluginTools.getDisabled`。
 > - `attachments.upload({ filePath })` 仅允许系统渲染窗口使用；插件 UI/后端如需上传文件，应先在已授权范围内读取为 `ArrayBuffer`/`buffer` 后再上传，避免让主进程代读任意本地路径。
 
 ---
@@ -32,7 +33,7 @@ const message = await ai.call({
 - `option` (AiOption)
   - `model` (string) - 模型 ID（如 `openai:gpt-4o-mini`）
   - `messages` (AiMessage[]) - 对话消息
-  - `params` (AiModelParameters) - 覆盖参数（可选）
+  - `params` (AiModelParameters) - 覆盖参数（可选）。除 `temperature`/`topP`/`maxOutputTokens`/`reasoningEffort`/`thinking` 外，还支持 `responseFormat`/`jsonSchema` 等**结构化输出**参数（见下文「结构化输出（JSON 模式 / JSON Schema）」）
   - `tools` (AiTool[]) - 工具定义（Function Calling）
   - `capabilities` (string[]) - 内置工具能力声明（可选）
   - `internalTools` (string[]) - 旧版内置工具声明（可选，已废弃，建议改用 `capabilities`）
@@ -59,6 +60,63 @@ const req = ai.call(
 // req.abort?.();
 
 // ✅ 正确：使用独立的 ai.abort(requestId)（见下文）
+```
+
+### 结构化输出（JSON 模式 / JSON Schema）
+
+通过 `option.params` 让模型从**源头**产出结构化结果，而非靠提示词约束后再解析。把"是否合法 JSON / 是否符合结构"的保证从软（prompt）提升到 API 级。
+
+**参数**（均在 `params` 内，可选）：
+- `responseFormat`: `'json_object' | 'json_schema'`
+  - `'json_object'`：约束输出为**合法 JSON**（不含前言/markdown 围栏），结构由你的 prompt 描述。最通用、最稳妥。
+  - `'json_schema'`：进一步要求输出**符合 `jsonSchema`**。需配合 `jsonSchema`。
+- `jsonSchema` (`Record<string, unknown>`)：JSON Schema（建议 draft 2020-12 子集），`responseFormat: 'json_schema'` 时生效。
+- `jsonSchemaName` (string)：schema 名称（OpenAI 需要），默认 `output`。
+- `strict` (boolean)：严格模式（OpenAI `strict` / 增强遵守），默认 `true`。严格模式下 schema 通常需为"封闭"结构（所有字段在 `required`、`additionalProperties: false`）。
+
+> 使用 `json_object` 时，请确保你的提示词中出现 "JSON" 字样（OpenAI 等要求），否则部分 provider 会拒绝。
+
+**Provider 覆盖**：
+| Provider | 机制 | 状态 |
+|---|---|---|
+| OpenAI / openai-compatible / ollama / deepseek / openrouter / azure | 请求体 `response_format` | ✅ |
+| 走 AI SDK 的 provider（含 Google Gemini） | AI SDK `Output`（自动映射 Gemini `responseSchema` 等） | ✅（无 `tools` 时） |
+| Anthropic 原生端点 | — | ⚠️ 暂不注入（其原生结构化字段尚不稳定），建议经 SDK 或在应用层兜底 |
+
+> 注意：`responseFormat` 与 `tools`（函数调用）不建议同时使用；当存在工具时结构化输出不会启用。少数老旧端点可能不支持 `response_format`，建议仍在应用层对结果做校验/重试。
+
+**示例 — JSON 模式（推荐，最稳妥）**：
+```javascript
+const msg = await window.mulby.ai.call({
+  model,
+  messages: [
+    { role: 'system', content: '只输出一个合法的 JSON 对象，包含 scenes 数组。' },
+    { role: 'user', content: storyText }
+  ],
+  params: { responseFormat: 'json_object' }
+});
+const data = JSON.parse(msg.content); // 已是合法 JSON
+```
+
+**示例 — JSON Schema（约束结构）**：
+```javascript
+const msg = await window.mulby.ai.call({
+  model,
+  messages: [{ role: 'user', content: '提取人物信息' }],
+  params: {
+    responseFormat: 'json_schema',
+    jsonSchemaName: 'person',
+    strict: false,
+    jsonSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        age: { type: 'number' }
+      },
+      required: ['name']
+    }
+  }
+});
 ```
 
 ### abort(requestId)
@@ -519,9 +577,9 @@ await ai.settings.update({
 
 ## MCP 管理
 
-> 可用端：仅系统渲染进程 `window.mulby.ai.mcp`。  
+> 可用端：完整管理接口仅系统渲染进程 `window.mulby.ai.mcp`。  
 > 插件后端 `context.api.ai` 当前不提供 `mcp.*` 管理接口（但 `ai.call` 可使用 `option.mcp` 参与工具选择）。
-> 插件 UI 即使能看到该命名空间，IPC 层也会拒绝调用。
+> 插件 UI 调用绝大多数管理操作（`getServer` / `upsertServer` / `removeServer` / `activateServer` / `deactivateServer` / `restartServer` / `checkServer` / `abort` / `getLogs`）会被 IPC 层拒绝；仅 `listServers`（返回剔除 env/headers/baseUrl/command/args 的脱敏视图）与 `listTools`（只读，按工具策略过滤）对插件窗口开放。
 
 ### mcp.listServers()
 [Renderer]
@@ -638,7 +696,7 @@ const logs = await ai.mcp.getLogs('filesystem');
 
 > 系统渲染进程：`window.mulby.ai.skills`（完整管理接口）  
 > 插件后端：`context.api.ai.skills`（仅 `listEnabled` 与 `previewForCall`）
-> 插件 UI 不允许调用完整管理接口（安装、删除、启停、解析全局 Skill 配置等）。
+> 插件 UI：可调用只读发现接口 `list` / `listEnabled` / `get` / `preview` / `resolve`；安装、删除、启停、`refresh` 等写入/刷新操作仍仅限系统渲染进程，IPC 层会拒绝插件调用。
 
 ### skills.list()
 ### skills.refresh()
@@ -825,7 +883,7 @@ const tokens2 = await ai.tokens.estimate({
 **说明**:
 - `outputText` 传入时，`outputTokens` 会按实际输出文本分词计算。
 - `outputText` 未传时，`outputTokens` 会使用 `maxOutputTokens`（若开启）或启发式估算。
-- 插件后端类型签名为 `{ model: string; messages: AiMessage[]; attachments?: AiAttachmentRef[] }`，未在类型上声明 `outputText`。如需在后端使用实际输出文本估算，可通过类型断言传入；运行时会被透传到底层估算逻辑。
+- 插件后端类型签名为 `{ model?: string; messages: AiMessage[]; outputText?: string }`，未在类型上声明 `attachments`。如需在后端按附件估算输入 token，可通过类型断言传入；运行时会被透传到底层估算逻辑。
 
 ---
 
@@ -881,6 +939,27 @@ const result = await ai.images.edit({
 });
 ```
 
+**参数**:
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `model` | `string` | 图像模型 |
+| `imageAttachmentId` | `string` | 主图附件 ID（待编辑 / 主参考图） |
+| `prompt` | `string` | 编辑/生成指令 |
+| `referenceAttachmentIds` | `string[]?` | 额外参考图附件 ID 列表。按参考图条件生成、多图一致性（如同一角色跨镜、角色+场景），附在主图之后一并传给模型。在**支持多图输入的模型**（如 Google Gemini 图像模型）上效果最佳；不支持多图的模型一般只用主图。 |
+
+```javascript
+// 多参考图：按参考图条件生成（IP-Adapter 式强一致性）
+const result = await ai.images.edit({
+  model: 'google:gemini-2.5-flash-image',
+  imageAttachmentId: hero.attachmentId,          // 主参考（如角色三视图）
+  referenceAttachmentIds: [scene.attachmentId],  // 附加参考（如场景设定图）
+  prompt: '夜晚雨中，角色站在霓虹街道上的电影感画面'
+});
+```
+
+> 插件后端（`context.api.ai.images.edit`）的 TypeScript 类型签名目前未声明 `referenceAttachmentIds`，但运行时会透传到底层 `editImage`。后端如需传多参考图，可通过类型断言传入。
+
 **返回值**: `{ images: string[]; tokens: AiTokenBreakdown }`
 
 ---
@@ -895,7 +974,8 @@ type AiMessage = {
   reasoning_content?: string;
   /**
    * 流式事件类型（仅 onChunk 过程中出现），用于统一
-   * meta / text / reasoning / tool-call / tool-progress / tool-result / error / end 协议。
+   * meta / text / reasoning / tool-call / tool-progress / tool-result / error / usage / end 协议。
+   * usage：多步工具循环中每轮 LLM 往返结束时推送的真实用量快照（usage=跨轮累计，usage_round=本轮）。
    */
   chunkType?:
     | 'meta'
@@ -905,6 +985,7 @@ type AiMessage = {
     | 'tool-progress'
     | 'tool-result'
     | 'error'
+    | 'usage'
     | 'end';
   capability_debug?: {
     requested: string[];
@@ -942,6 +1023,10 @@ type AiMessage = {
     statusCode?: number;
   };
   usage?: AiTokenBreakdown;
+  /** usage chunk 专用：本轮（单次 LLM 往返）的真实用量；provider 可能只返回单侧 */
+  usage_round?: { inputTokens?: number; outputTokens?: number };
+  /** usage chunk 专用：工具循环轮次（1-based） */
+  tool_round?: number;
 };
 ```
 
@@ -1016,6 +1101,15 @@ type AiModelParameters = {
   //   AI SDK providerOptions（anthropic.thinking / google.thinkingConfig）
   // 省略则用 provider/模型默认值。
   thinking?: 'enabled' | 'disabled';
+  // 结构化输出格式（见「结构化输出」一节）。'json_object' 约束为合法 JSON；
+  // 'json_schema' 进一步按 jsonSchema 约束结构。省略则为普通文本输出。
+  responseFormat?: 'json_object' | 'json_schema';
+  // JSON Schema（建议 draft 2020-12 子集），responseFormat: 'json_schema' 时生效。
+  jsonSchema?: Record<string, unknown>;
+  // 结构化输出的 schema 名称（OpenAI 需要），省略默认 'output'。
+  jsonSchemaName?: string;
+  // 严格模式（OpenAI strict / 增强 schema 遵守），默认 true。
+  strict?: boolean;
 };
 ```
 
@@ -1067,6 +1161,11 @@ type AiModel = {
     type: 'text' | 'vision' | 'embedding' | 'reasoning' | 'function_calling' | 'web_search' | 'rerank';
     isUserSelected?: boolean;
   }>;
+  /**
+   * 模型的「上下文窗口（token 数）」。与 `params.contextWindow`（历史消息条数窗口）不是一回事。
+   * 优先级：用户显式覆盖 > models.dev 快照/缓存；两者都未知则缺省，消费方保守处理（不按模型 id 家族猜）。
+   */
+  contextTokens?: number;
 };
 ```
 
@@ -1302,9 +1401,10 @@ type AiAttachmentRef = {
 ## 网络搜索工具设置 (tooling.webSearch)
 
 > 可用端：
-> - 系统渲染进程：`window.mulby.ai.tooling.webSearch`
+> - 系统渲染进程：`window.mulby.ai.tooling.webSearch`（完整读写）
+> - 插件 UI：仅 `getSettings` / `setActiveProvider`
 >
-> 该接口会读写宿主 WebSearch Provider、API Key、自定义搜索源等全局配置，仅设置页可用。插件调用联网搜索应在 `ai.call` 中请求 `web.search` / `web.fetch` 能力。
+> `get` / `update` 会读写宿主 WebSearch Provider、API Key、自定义搜索源等全局配置（含密钥），仅设置页可用。`getSettings`（读取激活 provider 与可用列表）与 `setActiveProvider`（切换激活 provider）不含密钥，已对插件 UI 开放。插件调用联网搜索本身应在 `ai.call` 中请求 `web.search` / `web.fetch` 能力。
 
 ### tooling.webSearch.get()
 [Renderer]
@@ -1434,9 +1534,10 @@ const result = await ai.tooling.webSearch.setActiveProvider('local-bing');
 ## 插件工具管理 (tooling.pluginTools)
 
 > 可用端：
-> - 系统渲染进程：`window.mulby.ai.tooling.pluginTools`
+> - 系统渲染进程：`window.mulby.ai.tooling.pluginTools`（读写）
+> - 插件 UI：仅 `getDisabled`（只读）
 >
-> 该接口读写全局插件工具禁用列表，仅设置页可用。
+> `getDisabled`（读取禁用列表）已对插件 UI 开放；`setDisabled`（全量写入禁用列表）读写全局配置，仅设置页可用，IPC 层会拒绝插件调用。
 
 ### tooling.pluginTools.getDisabled()
 [Renderer]
