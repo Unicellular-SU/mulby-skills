@@ -1,7 +1,7 @@
 # Mulby API 接口参考（代码对齐）
 
-> 最后更新：2026-05-14
-> 对齐基准：`src/preload/apis/*.ts`、`src/main/plugin/api.ts`、`src/main/ipc/index.ts`；自动校验命令：`npm run check:api-docs`（已接入 CI 的 `verify:app`）
+> 最后更新：2026-08-13
+> 对齐基准：`src/preload/apis/*.ts`、`src/main/plugin/api.ts`、`src/main/ipc/*.ts`、`src/shared/types/{electron,plugin,ai}.ts`；自动校验命令：`pnpm run check:api-docs`（已接入 CI 的 `verify:app`）
 
 ## 系统与应用
 - [System API (system)](./system.md)
@@ -35,6 +35,7 @@
 - [全局输入监听 API (inputMonitor)](./input-monitor.md)
 
 ## 插件与调度
+- [插件清单 manifest.json](./manifest.md)
 - [插件管理 API (plugin)](./plugin.md)
 - [插件商店 API (plugin-store)](./plugin-store.md)
 - [插件 Host API (host)](./host.md)
@@ -60,6 +61,6 @@
 - [FFmpeg 音视频处理 API (ffmpeg)](./ffmpeg.md)
 
 ## 说明
-- 文档以代码实现为准，接口签名请同时参考 `src/shared/types/electron.d.ts`。
+- 文档以代码实现为准；Renderer 接口签名请参考 `src/shared/types/electron.d.ts`，Backend 接口签名请参考 `src/shared/types/plugin.ts`，AI 公共数据结构请参考 `src/shared/types/ai.ts`。
 - 如发现文档与实现不一致，请以代码为准并提报文档修正。
-- 日常可执行 `npm run check:api-docs` 做一致性检查；CI 会在 `npm run verify:app` 中强制校验。
+- 日常可执行 `pnpm run check:api-docs` 做一致性检查；CI 会在 `pnpm run verify:app` 中强制校验。

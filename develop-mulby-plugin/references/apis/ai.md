@@ -6,7 +6,7 @@
 > - 插件后端：`context.api.ai`
 
 > 安全边界：
-> - 插件可使用 `ai.call`、`abort`、`allModels`、附件 `buffer` 上传、Token 估算与图片生成等调用型能力。
+> - 插件可使用 `ai.call`、`abort`、`allModels`、附件 `buffer` 上传、Token 估算、旧图片接口、`images.providers.describe`、`images.validateInput` 和 `images.tasks.*` 持久化任务。图片任务、事件、输入附件和制品均按插件身份隔离；系统应用可查看全部任务。
 > - 宿主**管理/写入**能力仅允许系统渲染窗口（主应用/设置页/首次引导页）调用，插件 UI 由 IPC 层拒绝：AI 设置读写（`settings.get`/`update`）、Provider 探测与连接测试（`models.fetch`、`testConnection`/`testConnectionStream`）、MCP 服务器增删改与连通性/日志（`mcp.getServer`/`upsertServer`/`removeServer`/`activateServer`/`deactivateServer`/`restartServer`/`checkServer`/`abort`/`getLogs`）、Skills 安装/删除/启停/刷新（`skills.refresh`/`install`/`remove`/`enable`/`disable`）、WebSearch 全局配置读写（`tooling.webSearch.get`/`update`）、插件工具禁用写入（`tooling.pluginTools.setDisabled`）。
 > - 以下**只读发现 / 低敏切换**能力对插件 UI 开放（不含密钥与全局敏感配置）：`skills.list`/`listEnabled`/`get`/`preview`/`resolve`、`mcp.listServers`（返回脱敏视图）/`listTools`、`tooling.webSearch.getSettings`/`setActiveProvider`、`tooling.pluginTools.getDisabled`。
 > - `attachments.upload({ filePath })` 仅允许系统渲染窗口使用；插件 UI/后端如需上传文件，应先在已授权范围内读取为 `ArrayBuffer`/`buffer` 后再上传，避免让主进程代读任意本地路径。
@@ -44,8 +44,9 @@ const message = await ai.call({
   - `maxToolSteps` (number) - 工具调用最大步数（默认 20，范围 1-300）
 
 **返回值**:
-- `AiPromiseLike<AiMessage>` - 最终消息（包含可选 `usage`）
-- 流式调用时，第一个 chunk 会携带 `__requestId` 字段，可用于后续调用 `ai.abort(requestId)` 中止请求
+- Renderer：`Promise<AiMessage>`；最终消息包含可选 `usage`
+- Backend：`Promise<AiMessage>`
+- 仅 Renderer 流式调用的第一个 chunk 会携带合成字段 `__requestId`，可用于后续调用 `ai.abort(requestId)` 中止请求；该字段只存在于流式回调，不属于最终 `AiMessage`
 
 ```javascript
 const req = ai.call(
@@ -61,6 +62,8 @@ const req = ai.call(
 
 // ✅ 正确：使用独立的 ai.abort(requestId)（见下文）
 ```
+
+> 插件 Backend 运行在隔离 UtilityProcess 中，函数回调和 Promise 自定义属性不能经 `postMessage` 传递，因此 `context.api.ai.call()` / `mulby.ai.call()` 只支持等待最终结果，不会收到 `onChunk`，也不能使用 `req.abort()`。需要可中止的文本流时请在 Renderer 调用。
 
 ### 结构化输出（JSON 模式 / JSON Schema）
 
@@ -384,7 +387,7 @@ await ai.call(option, (chunk) => {
 | `git.diff` | `mulby_git_diff` | git diff | ✓ |
 | `skill.activate` | `mulby_activate_skill` | 加载 Skill 正文 | |
 
-> 高风险能力默认会被宿主安全策略拦截，必须在 `toolingPolicy.capabilityAllowList` 中显式放行才能在本次会话使用，详见下文「网络搜索工具设置」末尾的示例。
+> 能力是否默认允许由宿主 `capabilityPolicy.defaultAppCapabilities` 和用户全局授权共同决定。当前默认包含 `shell.exec`、`shell.script`、`fs.*`、`patch.apply`、`http.fetch`、`git.status`、`git.diff`；`web.search` / `web.fetch` 默认关闭。`toolingPolicy.capabilityAllowList` 可为本次会话额外放行能力，`capabilityDenyList` 和全局 deny 始终优先。
 
 > 插件承载的 AI 还需要插件 manifest 显式声明对应权限。命令型能力（`shell.exec`、`shell.script`、`git.status`、`git.diff`、`patch.apply`）要求 `permissions.commandExecution.ai.enabled: true`；旧版 `permissions.runCommand: true` 只授权插件代码直接调用命令，不授权 AI 生成命令。
 
@@ -451,7 +454,8 @@ interface AiModelsFilter {
   endpointType?: AiEndpointType | AiEndpointType[]
   /**
    * 按能力筛选（单值或多值），满足任意一个即包含。
-   * 枚举值：'text' | 'vision' | 'file' | 'reasoning' | 'image-generation' | ...
+   * 枚举值：'text' | 'vision' | 'embedding' | 'reasoning' |
+   * 'function_calling' | 'web_search' | 'rerank'
    */
   capability?: AiModelType | AiModelType[]
   /**
@@ -497,16 +501,25 @@ const result = await ai.models.fetch({
 [Renderer]
 使用 `ping` 消息进行快速连通性测试。
 
-> 仅系统渲染窗口可用，用于设置页/首次引导页验证 Provider 配置；插件 UI/后端不应调用。
+> 仅系统渲染窗口可用，用于设置页/首次引导页验证模型配置；插件 UI/后端不应调用。AI 设置页在“模型管理”的测试弹框中调用该接口，API 密钥管理不承担模型连通性测试。
 
 ```javascript
 const result = await ai.testConnection({
-  providerId: 'openai',
-  model: 'openai:deepseek-chat',
-  baseURL: 'https://api.deepseek.com/',
+  providerId: 'gateway',
+  providerType: 'openai-response',
+  endpointType: 'openai-response',
+  model: 'gateway:gpt-5.6-sol',
+  baseURL: 'https://gateway.example/v1',
   apiKey: 'sk-xxx'
 });
 ```
+
+**参数**:
+- `model` (string, optional) - 待测试模型 ID
+- `providerId` (string, optional) - Provider 实例 ID
+- `providerType` (string, optional) - 测试时使用的 Provider 协议，可覆盖尚未自动保存的设置草稿
+- `endpointType` (`AiEndpointType`, optional) - 测试时使用的模型端点类型；例如 `openai-response` 会路由到 Responses API，`openai` 会路由到 Chat Completions 兼容模式
+- `apiKey`、`baseURL`、`anthropicBaseURL`、`apiVersion`、`headers` (optional) - 测试时的 Provider 配置覆盖
 
 **返回值**:
 - `{ success: boolean; message?: string }`
@@ -518,11 +531,13 @@ const result = await ai.testConnection({
 > 仅系统渲染窗口可用，用于设置页 Provider 调试；插件 UI/后端不应调用。
 
 ```javascript
-const req = ai.testConnectionStream(
+await ai.testConnectionStream(
   {
-    providerId: 'openai',
-    model: 'openai:deepseek-chat',
-    baseURL: 'https://api.deepseek.com/',
+    providerId: 'gateway',
+    providerType: 'openai-response',
+    endpointType: 'openai-response',
+    model: 'gateway:gpt-5.6-sol',
+    baseURL: 'https://gateway.example/v1',
     apiKey: 'sk-xxx'
   },
   (chunk) => {
@@ -530,14 +545,14 @@ const req = ai.testConnectionStream(
     if (chunk.type === 'content') console.log('[content]', chunk.text);
   }
 );
-
-req.abort?.();
 ```
 
 **返回值**:
-- `AiPromiseLike<{ success: boolean; message?: string; reasoning?: string }>`
+- `Promise<{ success: boolean; message?: string; reasoning?: string }>`
 
-> 说明：当 Provider 走 OpenAI 兼容协议并命中兼容路由时，会使用 `/chat/completions` 流式接口。
+> 当前公开 Renderer 契约不提供可靠的取消句柄：`contextBridge` 不保留 Promise 上的自定义 `abort` 属性，且该接口尚未向回调暴露 `requestId`。调用方应等待测试完成；不要依赖 `req.abort()`。
+
+> 说明：`openai-response` 通过 Responses API 的 `/responses` 端点流式测试；OpenAI 兼容协议命中 Chat Completions 路由时使用 `/chat/completions`。设置页的模型测试弹框默认开启流式模式，也允许用户关闭后验证非流式支持。
 
 ---
 
@@ -577,7 +592,8 @@ await ai.settings.update({
 
 ## MCP 管理
 
-> 可用端：完整管理接口仅系统渲染进程 `window.mulby.ai.mcp`。  
+> 可用端：完整管理接口仅系统渲染进程 `window.mulby.ai.mcp`。
+>
 > 插件后端 `context.api.ai` 当前不提供 `mcp.*` 管理接口（但 `ai.call` 可使用 `option.mcp` 参与工具选择）。
 > 插件 UI 调用绝大多数管理操作（`getServer` / `upsertServer` / `removeServer` / `activateServer` / `deactivateServer` / `restartServer` / `checkServer` / `abort` / `getLogs`）会被 IPC 层拒绝；仅 `listServers`（返回剔除 env/headers/baseUrl/command/args 的脱敏视图）与 `listTools`（只读，按工具策略过滤）对插件窗口开放。
 
@@ -902,13 +918,55 @@ const result = await ai.images.generate({
 });
 ```
 
+**兼容说明**：`generate`、`generateStream`、`edit` 和 `ai.abort(requestId)` 的签名与返回结构保持不变，但内部统一创建持久化图片任务。最终图片完成并写入受控附件目录后才转换为旧接口需要的 Base64；稳定错误额外携带 `code`、`taskId`、`retryable` 和 `billed`。旧接口转换前会先检查制品元数据，单图上限为 16 MiB、一次结果合计上限为 64 MiB；超限不会读取附件内容，并以稳定错误码 `legacy_result_too_large` 拒绝。大图或大批量结果应改用 `images.tasks` 返回的附件引用，避免 Base64 的额外内存开销。
+
+**尺寸控制**：插件仍可传 `size`（如 `'1024x1536'`）和 `aspectRatio`（如 `'2:3'`）。显式 `aspectRatio` 优先；否则精确尺寸 Profile 保留 `size`，宽高比 Profile 将 `size` 约分为比例（例如 `1536x1024` → `3:2`、`1024x1024` → `1:1`）。最终使用精确像素、宽高比、分辨率还是省略尺寸，由已选图片 Profile 的能力决定。
+
+**图片协议**：AI 设置中的 Provider 使用显式 Profile（OpenAI Images、Azure OpenAI Images、Gemini Images、OpenAI 兼容同步、异步任务制、Multipart 或自定义声明式协议），模型可覆盖 Profile/能力。解析优先级为模型覆盖 → Provider 覆盖 → 已验签目录/内置 Profile → 旧配置迁移。旧 `imageSizeFormat`、`imageEditTransport`、`imageUploadsURL` 仍会惰性迁移并双写。
+
+**宿主任务与结果网络边界**：图片生成/编辑请求由宿主图片任务系统管理。供应商控制面请求继续遵守既有的受保护网络策略；供应商返回的远程 HTTP(S) 图片结果则使用专用的系统网络栈下载，不要求结果域名白名单，任何有效且可访问的 HTTP(S) URL 都可作为结果，包括本机、局域网、Fake-IP 和签名 URL。
+
+结果下载固定使用 `GET`、手动处理重定向、`no-store`、省略 credentials 和空 headers。下载时不会转发供应商 `Authorization`、Cookie、Referer/Origin、自定义认证头或环境中的凭据。内联 Base64 结果不经过网络下载器。
+
+结果是否可接受按实际字节识别，而不是信任声明的 MIME；仅接受有效的 PNG、JPEG 或 WebP。响应头 `Content-Length` 和实际流式读取都执行 50 MiB 上限，超限、无效或不支持的图片仍会被拒绝。
+
+**不做计费探测**：Mulby 不会通过真实图片请求猜测协议，也不会在失败后静默尝试另一种生成协议。一次任务只固定一个 Profile、一个适配器和一次提交；请求可能已到达厂商但响应不明确时，任务进入 `unknown`，不会自动重发。设置里的真实连接/图片测试会明确标注“可能计费”。
+
+**提交与恢复的计费边界**：一次宿主任务最多提交一次可能计费的生成请求。`retry_pre_dispatch`、`resume_poll` 和 `resume_download` 复用原 `taskId`；只有 `confirm_regenerate` 在用户确认后创建带 `retryOf` 的新任务，并可能产生新的供应商费用。
+
+**旧接口错误契约**：`images.generate`、`images.generateStream` 和 `images.edit` 失败时都会 reject 一个 `Error`。该错误携带完整的 `AiImageOperationErrorPayload` 信息；`message` 保持标准 `Error.message` 供旧插件继续读取，其余六项为可枚举属性：
+
+| 字段 | 说明 |
+|---|---|
+| `message` | 可读错误信息，也是 `Error.message` |
+| `code` | 稳定的图片任务错误码 |
+| `phase` | 失败阶段：`validate`、`prepare`、`submit`、`poll`、`cancel` 或 `download` |
+| `taskId` | 对应的宿主图片任务 ID |
+| `retryable` | 当前错误是否具备可恢复条件 |
+| `billed` | 计费状态：`yes`、`no` 或 `unknown` |
+| `recoveryAction` | 当前允许的恢复动作，语义见下文 |
+
 **返回值**: `{ images: string[]; tokens: AiTokenBreakdown }`
+
+### images.profiles.listAvailable()
+[Renderer]
+列出系统 AI 设置界面可建议的真实图片 Profile ID，包括内置 Profile
+和系统已验签目录中当前可用的 Profile。模型级 Profile 输入框仍允许直接填写
+其他实际 ID；返回列表只用于补全建议，不会触发目录更新或协议探测。
+
+此方法仅供 Mulby 系统设置界面使用，插件 Renderer 或 Backend 调用会被拒绝。
+已验签目录的加载与更新仍由系统拥有，插件不能通过该接口修改目录。
+
+**返回值**: `Promise<string[]>`
 
 ### images.generateStream(input, onChunk)
 [Renderer] [Backend]
 流式生成图片，过程中会推送进度与预览片段。
 
+流建立后，**首个回调是一个合成 chunk `{ __requestId }`**（不含 `type` 字段），与 `ai.call()` 文本流的约定一致。渲染进程中 `req.abort()` 跨 `contextBridge` 不可用，请捕获 `__requestId` 后用 `ai.abort(requestId)` 真中止图像流。
+
 ```javascript
+let requestId = null;
 const req = ai.images.generateStream(
   {
     model: 'openai:gpt-image-1',
@@ -917,15 +975,23 @@ const req = ai.images.generateStream(
     count: 1
   },
   (chunk) => {
+    if (chunk.__requestId) { requestId = chunk.__requestId; return; }  // 首个回调：合成 chunk
     if (chunk.type === 'status') console.log(chunk.stage, chunk.message);
     if (chunk.type === 'preview') console.log('preview base64 length:', chunk.image?.length || 0);
   }
 );
 
-req.abort?.();
+// 中止：Renderer 使用 ai.abort(requestId)
+if (requestId) await ai.abort(requestId);
 ```
 
-**返回值**: `AiPromiseLike<{ images: string[]; tokens: AiTokenBreakdown }>`
+**返回值**: `Promise<{ images: string[]; tokens: AiTokenBreakdown }>`
+
+**插件后端限制**（隔离 utilityProcess，即 `dist/main.js` 里的 `mulby.ai.images.generateStream`）:
+- 参数经 postMessage 序列化，`onChunk` 回调会被剥为 `null`——后端收不到任何进度/预览片段；
+- 返回值是回投的普通数据，其上的 `abort` 不可用（`req.abort?.()` 为 no-op）；
+- 后端的短调用可继续用 `images.generate` / `images.edit`；需要恢复或中止的长任务应改用 `images.tasks.submit/get/cancel` 轮询闭环。
+- Renderer（`window.mulby.ai`）侧不受此限制。
 
 ### images.edit(input)
 [Renderer] [Backend]
@@ -947,6 +1013,20 @@ const result = await ai.images.edit({
 | `imageAttachmentId` | `string` | 主图附件 ID（待编辑 / 主参考图） |
 | `prompt` | `string` | 编辑/生成指令 |
 | `referenceAttachmentIds` | `string[]?` | 额外参考图附件 ID 列表。按参考图条件生成、多图一致性（如同一角色跨镜、角色+场景），附在主图之后一并传给模型。在**支持多图输入的模型**（如 Google Gemini 图像模型）上效果最佳；不支持多图的模型一般只用主图。 |
+| `size` | `string?` | 输出尺寸（如 `'1024x1536'`）。Profile 支持精确尺寸时采用；部分模型仍会跟随主图分辨率，因此是强约束而非绝对保证。 |
+| `aspectRatio` | `string?` | 输出宽高比（如 `'2:3'`）。显式传入时优先于由 `size` 推导的比例。 |
+| `maskAttachmentId` | `string?` | 局部重绘遮罩附件 ID。约定：PNG 中**完全透明（alpha=0）的区域 = 待重绘区域**（OpenAI images/edits 遮罩约定）。支持遮罩编辑的 Profile 走原生 mask 通道；不支持时在提交前返回能力校验错误。 |
+| `requestId` | `string?` | 调用方自带请求 ID。传入后可用 `ai.abort(requestId)` 请求取消对应持久化任务；厂商不支持远端取消时只停止本地等待，任务对象会标明 `remoteMayContinue`。 |
+
+```javascript
+// 局部重绘：主图 + 遮罩（涂抹区挖透明洞）
+const result = await ai.images.edit({
+  model: 'openai:gpt-image-1',
+  imageAttachmentId: photo.attachmentId,
+  maskAttachmentId: mask.attachmentId,
+  prompt: '在透明区域补一只趴在桌上的橘猫，光影与原图一致'
+});
+```
 
 ```javascript
 // 多参考图：按参考图条件生成（IP-Adapter 式强一致性）
@@ -958,9 +1038,512 @@ const result = await ai.images.edit({
 });
 ```
 
-> 插件后端（`context.api.ai.images.edit`）的 TypeScript 类型签名目前未声明 `referenceAttachmentIds`，但运行时会透传到底层 `editImage`。后端如需传多参考图，可通过类型断言传入。
+```javascript
+// 可中止的 edit：调用方自带 requestId（内容任意、无碰撞要求）
+const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const pending = ai.images.edit({
+  model: 'google:gemini-2.5-flash-image',
+  imageAttachmentId: image.attachmentId,
+  prompt: 'Add a red scarf',
+  size: '1024x1536',
+  requestId
+});
+// 用户点击停止：
+await ai.abort(requestId);   // pending 将以 abort 类错误 reject
+```
+
+> 老宿主向后兼容：`size` / `aspectRatio` / `requestId` 均为可选字段，插件无需版本探测即可继续使用同一份旧接口代码。
 
 **返回值**: `{ images: string[]; tokens: AiTokenBreakdown }`
+
+### images.providers.describe(input)
+[Renderer] [Backend]
+
+`images.providers.describe({ model?, providerId? })` 返回实际选中的 Profile、适配器、能力矩阵、字段来源和确认警告；这是只读解析，不向图片厂商发请求。
+
+```javascript
+const description = await ai.images.providers.describe({
+  model: 'openai:gpt-image-1'
+});
+console.log(description.profile, description.capabilities);
+```
+
+**返回值**：`Promise<AiImageProviderDescription>`
+
+```typescript
+type AiImageProviderDescription = {
+  providerId: string;
+  model?: string;
+  profile: { id: string; version: string; adapter: string };
+  capabilities: AiImageCapabilities;
+  capabilitySources: Record<string, string>;
+  warnings: AiImageValidationIssue[];
+  requiresConfirmation: boolean;
+  resolution?: ImageProtocolResolutionDiagnostic;
+};
+```
+
+### images.validateInput(request)
+[Renderer] [Backend]
+
+`images.validateInput(request)` 做语法和能力校验，同样不会提交生成请求。插件不能通过 `providerOptions` 改写端点、HTTP 方法或认证头；只允许 Profile 白名单声明的厂商参数。
+
+**返回值**：`Promise<AiImageValidationResult>`
+
+```typescript
+type AiImageValidationResult = {
+  valid: boolean;
+  normalized?: AiImageRequest;
+  errors: AiImageValidationIssue[];
+  warnings: AiImageValidationIssue[];
+  provider?: AiImageProviderDescription;
+};
+```
+
+### AiImageRequest
+
+```typescript
+type AiImageRequest = {
+  operation: 'generate' | 'edit' | 'inpaint' | 'variation';
+  model: string;
+  prompt: string;
+  clientTag?: string;
+  inputs?: Array<{
+    attachmentId: string;
+    role: 'source' | 'reference' | 'mask';
+  }>;
+  output?: {
+    aspectRatio?: string;
+    exactSize?: { width: number; height: number };
+    resolution?: 'auto' | '512' | '1K' | '2K' | '4K';
+    quality?: string;
+    format?: 'png' | 'jpeg' | 'webp';
+    background?: 'auto' | 'opaque' | 'transparent';
+    count?: number;
+  };
+  providerOptions?: Record<string, unknown>;
+};
+```
+
+### 图片 Profile 与校验类型
+
+```typescript
+type AiImageValidationIssue = {
+  code: AiImageTaskErrorCode;
+  message: string;
+  path?: string;
+};
+
+type AiImageCapabilities = {
+  operations: Array<'generate' | 'edit' | 'inpaint' | 'variation'>;
+  input: {
+    maxSourceImages: number;
+    maxReferenceImages: number;
+    supportsMask: boolean;
+    acceptedMimeTypes: string[];
+    maxBytesPerImage?: number;
+  };
+  output: {
+    sizeMode: 'exact' | 'ratio' | 'resolution' | 'omit';
+    exactSizes?: Array<{ width: number; height: number }>;
+    aspectRatios?: string[];
+    resolutions?: Array<'auto' | '512' | '1K' | '2K' | '4K'>;
+    formats?: Array<'png' | 'jpeg' | 'webp'>;
+    qualities?: string[];
+    backgrounds?: Array<'auto' | 'opaque' | 'transparent'>;
+    maxCount: number;
+  };
+  lifecycle: {
+    mode: 'sync' | 'stream' | 'async';
+    nativePreview: boolean;
+    cancellable: boolean;
+  };
+  providerOptions?: Record<string, {
+    type: 'string' | 'number' | 'boolean';
+    description?: string;
+    enum?: Array<string | number | boolean>;
+    minimum?: number;
+    maximum?: number;
+  }>;
+};
+
+type ImageProtocolResolutionDiagnostic = {
+  providerId: string;
+  configuredOrigin: string;
+  providerModelId: string;
+  canonicalModelId?: string;
+  modelsDevProviderId?: string;
+  matchedBindingId?: string;
+  profileId?: string;
+  profileVersion?: string;
+  capabilitySources: Record<string, string>;
+  candidates: Array<{ bindingId: string; matched: boolean; reason: string }>;
+  unresolvedReasons: string[];
+};
+```
+
+输入图片必须先经 `ai.attachments.upload()` 进入宿主管理的附件目录，再在 `inputs` 中引用 `attachmentId`。生成制品也以附件形式持久化；公共任务对象只返回当前插件有权读取的制品引用。
+
+## images.tasks：可恢复图片任务
+[Renderer] [Backend]
+
+```javascript
+const request = {
+  operation: 'generate',
+  model: 'openai:gpt-image-1',
+  prompt: '竖版科技漫画封面，蓝紫霓虹，清晰标题留白',
+  clientTag: 'tech-manga:chapter-12',
+  output: {
+    exactSize: { width: 1024, height: 1536 },
+    format: 'png',
+    count: 1
+  }
+};
+
+const validation = await ai.images.validateInput(request);
+if (!validation.valid) throw new Error(validation.errors[0]?.message);
+
+const task = await ai.images.tasks.submit(request);
+console.log(task.taskId, task.state);
+```
+
+### images.tasks.submit(request)
+[Renderer] [Backend]
+
+创建并唤醒任务，返回 `Promise<AiImageTask>`。任务创建时会固定 Provider、Profile 和适配器版本。
+
+### images.tasks.get(input)
+[Renderer] [Backend]
+
+`get({ taskId })` 获取当前插件拥有的任务，返回 `Promise<AiImageTask | null>`；不存在或无权访问时返回 `null`。
+
+### images.tasks.list(input)
+[Renderer] [Backend]
+
+`list({ states?, clientTag?, limit?, cursor? })` 分页恢复当前插件拥有的任务列表。
+
+返回 `Promise<{ tasks: AiImageTask[]; nextCursor?: string }>`。
+
+`limit` 默认 `20`、最大 `100`。宿主内部读取 `limit + 1` 行，仅在额外一行证明还有下一页时返回 `nextCursor`；返回的 `tasks` 始终不超过归一化后的 `limit`。
+
+### images.tasks.cancel(input)
+[Renderer] [Backend]
+
+`cancel({ taskId })` 请求取消并返回 `Promise<AiImageTask>`。取消可能是 Provider 远端取消，也可能只是本地取消。
+
+### images.tasks.retry(input)
+[Renderer] [Backend]
+
+`retry({ taskId, confirmBillableRisk? })` 仅在安全条件下恢复；需要创建新提交且原任务计费状态不明确时，必须显式传入 `confirmBillableRisk: true`。
+
+返回 `Promise<{ task: AiImageTask; createdNewTask: boolean }>`。
+
+### images.tasks.subscribe(input)
+[Renderer] [Backend]
+
+`subscribe({ taskId?, clientTag?, sinceRevision? })` 创建 owner 隔离的事件订阅，并返回 `Promise<{ subscriptionId: string; snapshots: AiImageTask[] }>`。Renderer 可配合 `onEvent` 接收后续事件。
+
+### images.tasks.unsubscribe(input)
+[Renderer] [Backend]
+
+`unsubscribe({ subscriptionId })` 删除当前插件拥有的订阅。Renderer 销毁时宿主也会自动清理其订阅；插件后端宿主退出时只清理该后端创建的订阅。
+
+### images.tasks.onEvent(listener)
+[Renderer] [Backend]
+
+Renderer 和插件后端都可用 `onEvent(listener)` 接收已订阅任务的实时事件，并获得本地监听清理函数。UtilityProcess 后端通过 worker 内的 callback ID 注册表和宿主 `deliverImageTaskEvent` 消息桥接回调；函数本身不会序列化穿过 `postMessage`。事件按既有任务 `revision` 语义交付。调用返回的清理函数只移除对应后端回调；后端退出时宿主清理该后端创建的监听和订阅，不影响 Renderer 或其他 owner 的监听。
+
+Renderer 的恢复用法：
+
+```javascript
+const off = ai.images.tasks.onEvent((event) => {
+  if (event.taskId !== task.taskId) return;
+  if (event.type === 'progress') console.log(event.progress);
+  if (event.type === 'artifact_ready') console.log(event.artifact);
+  if (event.type === 'terminal') console.log(event.state, event.error);
+});
+
+const subscription = await ai.images.tasks.subscribe({
+  taskId: task.taskId,
+  sinceRevision: task.revision
+});
+
+// 页面重新打开或 Mulby 重启后：
+const restored = await ai.images.tasks.get({ taskId: task.taskId });
+
+await ai.images.tasks.unsubscribe({
+  subscriptionId: subscription.subscriptionId
+});
+off();
+```
+
+> 插件后端运行在隔离 UtilityProcess 时，`onEvent` 由 callback bridge 支持。进程断开期间的恢复仍应使用持久化的 `get/list` 快照与 `sinceRevision` 重新订阅，不能把进程内回调当作持久状态。
+
+### 状态、事件、错误与恢复语义
+
+`AiImageTask.state` 可能为：
+
+```typescript
+type AiImageTaskState =
+  | 'queued' | 'preparing' | 'submitting' | 'submitted' | 'running'
+  | 'cancelling' | 'downloading' | 'completed' | 'failed' | 'cancelled'
+  | 'blocked' | 'unknown' | 'reconciling' | 'safe_to_retry';
+```
+
+核心任务、制品、错误和事件结构如下：
+
+```typescript
+type AiImageArtifact = {
+  artifactId: string;
+  attachmentId: string;
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+  sha256: string;
+  createdAt: string;
+};
+
+type AiImageTaskErrorCode =
+  | 'invalid_request' | 'unsupported_operation' | 'unsupported_parameter'
+  | 'auth_failed' | 'permission_denied' | 'rate_limited' | 'quota_exceeded'
+  | 'content_policy' | 'input_upload_failed' | 'provider_rejected'
+  | 'provider_unavailable' | 'network_policy' | 'submit_ambiguous'
+  | 'provider_task_not_found' | 'poll_failed' | 'download_failed'
+  | 'protocol_response_mismatch' | 'reconcile_failed'
+  | 'legacy_result_too_large' | 'cancelled' | 'timeout' | 'internal_error';
+
+type AiImageTaskError = {
+  code: AiImageTaskErrorCode;
+  phase: 'validate' | 'prepare' | 'submit' | 'poll' | 'cancel' | 'download';
+  message: string;
+  retryable: boolean;
+  billed: 'yes' | 'no' | 'unknown';
+  providerCode?: string;
+  httpStatus?: number;
+  details?: Record<string, unknown>;
+};
+
+type AiImageRecoveryAction =
+  | 'retry_pre_dispatch'
+  | 'resume_poll'
+  | 'resume_download'
+  | 'confirm_regenerate'
+  | 'none';
+
+type AiImageTask = {
+  taskId: string;
+  clientTag?: string;
+  request: {
+    operation: 'generate' | 'edit' | 'inpaint' | 'variation';
+    model: string;
+    clientTag?: string;
+    inputCount: number;
+    output?: AiImageRequest['output'];
+  };
+  state: AiImageTaskState;
+  revision: number;
+  progress?: number;
+  artifacts: AiImageArtifact[];
+  error?: AiImageTaskError;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    generatedImages?: number;
+    source: 'provider' | 'estimated';
+  };
+  billed: 'yes' | 'no' | 'unknown';
+  downloadAttempt: number;
+  recoveryAction: AiImageRecoveryAction;
+  retryOf?: string;
+  cancellation?: {
+    scope: 'provider' | 'local';
+    remoteMayContinue: boolean;
+    requestedAt: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+
+type AiImageTaskEvent = {
+  eventId: string;
+  taskId: string;
+  revision: number;
+  type: 'state_changed' | 'progress' | 'preview' | 'artifact_ready' |
+    'warning' | 'output_refreshed' | 'terminal';
+  state: AiImageTaskState;
+  progress?: number;
+  preview?: { image: string; index?: number; mimeType?: string };
+  artifact?: AiImageArtifact;
+  error?: AiImageTaskError;
+  timestamp: number;
+};
+```
+
+事件包含 `state_changed`、`progress`、`preview`、`artifact_ready`、`output_refreshed`、`warning`、`terminal`，每个任务的 `revision` 单调递增。状态变化和终态不会被合并；高频进度可能合并。只有厂商原生提供预览时才发 `preview`，Mulby 不会用额外生成请求模拟预览。
+
+任务、恢复句柄、事件和制品元数据保存在 SQLite；prompt、厂商任务句柄和签名 URL 等恢复敏感字段由 Electron `safeStorage` 加密。重启后：
+
+- 尚未开始提交的任务可以继续；
+- 已保存厂商任务 ID 的异步任务继续轮询同一个远端任务；
+- 已提交但是否到达厂商不明确的任务进入 `unknown`，绝不自动重发；
+- 下载失败只重试下载，不重新生成；
+- 提交已开始但尚无远端终态证明时，本地取消会标记 `billed=unknown`，并保留可协调的提交状态，使迟到的同步结果或异步句柄仍可落库；
+- 取消和完成竞态按远端最终状态收敛。
+
+一个宿主任务最多发起一次可能计费的供应商提交。`AiImageTask.recoveryAction` 和操作错误中的同名字段取值如下：
+
+| `recoveryAction` | 恢复语义 |
+|---|---|
+| `retry_pre_dispatch` | 继续原任务；该任务从未开始向供应商提交 |
+| `resume_poll` | 使用原任务保存的供应商任务 ID/句柄继续查询 |
+| `resume_download` | 在原任务上下载已保留或已刷新的输出 |
+| `confirm_regenerate` | 必须由用户明确确认，之后创建一次新的请求和新任务 |
+| `none` | 当前没有可用的恢复动作 |
+
+`retry()` 对前三种安全恢复动作复用原 `taskId`，不会创建新的生成提交。`confirm_regenerate` 必须传入 `confirmBillableRisk: true`；确认后才创建带 `retryOf` 的新任务，并可能产生新的供应商费用。提交结果不明确时不会自动重新生成。
+
+远程结果下载最多自动执行三轮 URL 下载；下载 401/403/404 且原异步任务句柄仍存在时，宿主只会尝试一次过期 URL 刷新，并记录一个 `output_refreshed` 时间线事件，随后仍在原任务上继续。取消任务会中止正在进行的本地下载。任务中心和历史记录会展示任务、事件、恢复动作与制品状态，但具体供应商是否支持轮询、刷新或远端取消仍取决于其公开能力，宿主不承诺供应商特有行为。
+
+### images.systemTasks（Mulby 系统界面专用）
+
+`images.systemTasks` 为“AI 图片任务”系统页提供跨插件摘要、详情、事件、缩略图和 ZIP 导出。主进程只接受已登记的 Mulby app renderer；插件窗口、插件 utility process 和未知窗口调用都会被拒绝。插件应继续使用 owner-scoped 的 `images.tasks.*`，不能依赖 `systemTasks`。
+
+系统导出由主进程打开原生保存对话框，调用方不能传目标路径。Prompt、Base64、来源 URL 与图片二进制默认关闭，只有用户显式选择并确认后才写入 ZIP。
+
+```typescript
+type AiImageSystemTaskSummary = AiImageTask & {
+  ownerPluginId: string;
+  providerId: string;
+  profileId: string;
+  profileVersion: string;
+  bindingId?: string;
+  adapter: { id: string; version: string };
+  resolution?: ImageProtocolResolutionDiagnostic;
+};
+
+type AiImageSystemTaskDetail = AiImageSystemTaskSummary & {
+  fullRequest?: AiImageRequest;
+  fullRequestUnavailableReason?: 'decrypt_failed';
+  cancelExpectation: {
+    scope: 'provider' | 'local';
+    remoteMayContinue: boolean;
+  };
+  lifecycle?: AiImageCapabilities['lifecycle'];
+  lifecycleUnavailableReason?:
+    | 'decrypt_failed'
+    | 'historical_profile_not_retained';
+  sourceExport: {
+    available: boolean;
+    urlCount: number;
+    unavailableReason?:
+      | 'historical_source_not_retained'
+      | 'provider_returned_no_urls'
+      | 'task_not_completed'
+      | 'decrypt_failed';
+  };
+};
+
+type AiImageSystemTaskEventPage = {
+  events: Array<{
+    eventId: string;
+    taskId: string;
+    revision: number;
+    type: AiImageTaskEvent['type'];
+    state: AiImageTaskState;
+    progress?: number;
+    preview?: { available: boolean; index?: number; mimeType?: string };
+    artifact?: AiImageArtifact;
+    error?: AiImageTaskError;
+    usage?: AiImageTask['usage'];
+    timestamp: number;
+  }>;
+  nextCursor?: string;
+};
+
+type AiImageTaskExportSelection = {
+  scope:
+    | { kind: 'current'; taskId: string }
+    | { kind: 'selected'; taskIds: string[] }
+    | { kind: 'filtered'; group?: 'all' | 'active' | 'completed' | 'failed_or_blocked' | 'billing_risk'; query?: string }
+    | { kind: 'all' };
+  contents: {
+    prompt: boolean;
+    base64: boolean;
+    sourceUrls: boolean;
+    imageBinary: boolean;
+  };
+};
+```
+
+### images.systemTasks.list(input)
+[Renderer]
+
+按 `group`（`all`、`active`、`completed`、`failed_or_blocked` 或 `billing_risk`）、`query`、`limit` 和不透明 `cursor` 分页查询跨 owner 的任务摘要。返回 `tasks` 与可选 `nextCursor`；列表读取不解密完整请求。
+
+**返回值**：`Promise<{ tasks: AiImageSystemTaskSummary[]; nextCursor?: string }>`
+
+### images.systemTasks.getDetail(input)
+[Renderer]
+
+`getDetail({ taskId })` 返回一个跨 owner 任务的详情或 `null`。详情按需解密完整请求和 Profile 生命周期快照；若历史记录无法解密或没有保留快照，会保留安全摘要并返回对应的不可用原因。
+
+**返回值**：`Promise<AiImageSystemTaskDetail | null>`
+
+### images.systemTasks.listEvents(input)
+[Renderer]
+
+`listEvents({ taskId, cursor?, limit? })` 按 revision 分页返回已脱敏的任务事件和可选 `nextCursor`。历史预览不包含原始图片内容。
+
+**返回值**：`Promise<AiImageSystemTaskEventPage>`
+
+### images.systemTasks.getArtifactPreview(input)
+[Renderer]
+
+`getArtifactPreview({ taskId, artifactId })` 为系统页返回受尺寸限制的 WebP 缩略图；制品不可用时调用失败。
+
+**返回值**：`Promise<{ artifactId: string; mimeType: 'image/webp'; width?: number; height?: number; dataUrl: string }>`
+
+### images.systemTasks.previewExport(selection)
+[Renderer]
+
+预览导出范围与内容选择，返回任务、制品、来源数量、不可用历史来源的数量和所选敏感内容种类。范围可为 `current`、`selected`、`filtered` 或 `all`；`filtered` 作用于完整筛选结果，不限于当前页。
+
+**返回值**：`Promise<{ taskCount: number; artifactCount: number; sourceUrlCount: number; unavailableSourceTaskCount: number; missingTaskIds: string[]; sensitiveKinds: Array<'prompt' | 'base64' | 'sourceUrls' | 'imageBinary'> }>`
+
+### images.systemTasks.exportArchive(request)
+[Renderer]
+
+请求导出 ZIP。`request` 包含范围、四个内容开关（Prompt、Base64、来源 URL、图片二进制）及 `confirmSensitive`；任一敏感开关开启时必须显式确认。主进程负责显示原生保存对话框并返回取消状态或仅含文件名、计数和写入字节数的结果，调用方不接收也不能指定保存路径。
+
+**返回值**：`Promise<{ cancelled: true } | { cancelled: false; fileName: string; taskCount: number; artifactCount: number; bytesWritten: number }>`
+
+### tech-manga 旧接口兼容示例
+
+本次重构不要求 manga-core 改用任务 API；现有调用可以原样工作：
+
+```javascript
+const result = references.length === 0
+  ? await ai.images.generate({
+      model,
+      prompt,
+      size: '1024x1536',
+      aspectRatio: '2:3',
+      count: 1
+    })
+  : await ai.images.edit({
+      model,
+      imageAttachmentId: references[0].attachmentId,
+      referenceAttachmentIds: references.slice(1).map((item) => item.attachmentId),
+      prompt,
+      size: '1024x1536',
+      aspectRatio: '2:3',
+      requestId
+    });
+
+const imageBase64 = result.images[0];
+```
 
 ---
 
@@ -972,6 +1555,8 @@ type AiMessage = {
   role: 'system' | 'user' | 'assistant';
   content?: string | AiMessageContent[];
   reasoning_content?: string;
+  /** 仅 Renderer 文本流首个合成 chunk；最终消息不包含该字段。 */
+  __requestId?: string;
   /**
    * 流式事件类型（仅 onChunk 过程中出现），用于统一
    * meta / text / reasoning / tool-call / tool-progress / tool-result / error / usage / end 协议。
@@ -1120,6 +1705,37 @@ type AiModelParameters = {
 
 > 模型是否为 reasoning，可由 `ai.allModels()` 返回的 `capabilities`（含 `{ type: 'reasoning' }`）判断——该能力现以 [models.dev](https://models.dev/) 数据为准。
 
+### 图片 Provider / Model 配置
+
+```typescript
+type AiImageCapabilityOverrides = {
+  operations?: Array<'generate' | 'edit' | 'inpaint' | 'variation'>;
+  input?: Partial<AiImageCapabilities['input']>;
+  output?: Partial<AiImageCapabilities['output']>;
+  lifecycle?: Partial<AiImageCapabilities['lifecycle']>;
+  providerOptions?: AiImageCapabilities['providerOptions'];
+};
+
+type AiImageProviderConfig = {
+  profileId: string;
+  profileVersion?: string;
+  allowInsecureLocalhost?: boolean;
+  endpointOverrides?: {
+    generate?: string;
+    edit?: string;
+    upload?: string;
+    poll?: string;
+    cancel?: string;
+  };
+  capabilityOverrides?: AiImageCapabilityOverrides;
+};
+
+type AiImageModelConfig = {
+  profileId?: string;
+  capabilityOverrides?: AiImageCapabilityOverrides;
+};
+```
+
 ### AiProviderConfig
 ```typescript
 type AiProviderConfig = {
@@ -1134,6 +1750,10 @@ type AiProviderConfig = {
   headers?: Record<string, string>;
   defaultModel?: string;
   defaultParams?: AiModelParameters;
+  imageSizeFormat?: 'pixels' | 'ratio' | 'omit';
+  imageEditTransport?: 'multipart' | 'uploads';
+  imageUploadsURL?: string;
+  images?: AiImageProviderConfig;
 };
 ```
 
@@ -1147,6 +1767,15 @@ type AiEndpointType =
   | 'image-generation'
   | 'jina-rerank';
 
+type AiModelType =
+  | 'text'
+  | 'vision'
+  | 'embedding'
+  | 'reasoning'
+  | 'function_calling'
+  | 'web_search'
+  | 'rerank';
+
 type AiModel = {
   id: string; // 形如 "openai:gpt-4o-mini"
   label: string;
@@ -1155,10 +1784,25 @@ type AiModel = {
   providerRef?: string;
   providerLabel?: string;
   endpointType?: AiEndpointType;
+  imageSizeFormat?: 'pixels' | 'ratio' | 'omit';
+  imageEditTransport?: 'multipart' | 'uploads';
+  images?: AiImageModelConfig;
+  catalogIdentity?: {
+    source: 'models.dev';
+    providerId?: string;
+    providerModelId: string;
+    canonicalModelId?: string;
+    family?: string;
+    match: 'exact-provider-model' | 'unique-alias' | 'ambiguous';
+  };
+  modalities?: {
+    input: Array<'text' | 'image' | 'audio' | 'video' | 'pdf'>;
+    output: Array<'text' | 'image' | 'audio' | 'video' | 'pdf'>;
+  };
   supportedEndpointTypes?: AiEndpointType[];
   params?: AiModelParameters;
   capabilities?: Array<{
-    type: 'text' | 'vision' | 'embedding' | 'reasoning' | 'function_calling' | 'web_search' | 'rerank';
+    type: AiModelType;
     isUserSelected?: boolean;
   }>;
   /**
@@ -1312,7 +1956,7 @@ type AiSkillDescriptor = {
   triggerPhrases?: string[];
   /** @deprecated 使用 mulbyExtensions.capabilities */
   capabilities?: string[];
-  /** @deprecated 使用 mulbyExtensions.capabilities */
+  /** @deprecated 使用 mulbyExtensions.internalTools */
   internalTools?: string[];
   /** @deprecated 使用 mulbyExtensions.mcpPolicy */
   mcpPolicy?: AiSkillMcpPolicy;
@@ -1374,13 +2018,16 @@ type AiPromiseLike<T> = Promise<T> & {
 ### AiImageGenerateProgressChunk
 ```typescript
 type AiImageGenerateProgressChunk = {
-  type: 'status' | 'preview';
+  // 业务 chunk 恒有 type；合成 chunk（仅含 __requestId）不携带 type
+  type?: 'status' | 'preview';
   stage?: 'start' | 'partial' | 'finalizing' | 'completed' | 'fallback';
   message?: string;
   image?: string;
   index?: number;
   received?: number;
   total?: number;
+  // 流建立后首个回调携带；用于 ai.abort(requestId)
+  __requestId?: string;
 };
 ```
 

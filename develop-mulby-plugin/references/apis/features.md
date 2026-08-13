@@ -177,7 +177,7 @@ for (const code of ['today', 'settings', 'window']) {
 [Backend]
 
 ```ts
-features.onMainPush(callback: (action: MainPushAction) => MainPushItem[] | Promise<MainPushItem[]>)
+features.onMainPush(callback: (action: MainPushAction) => MainPushItem[] | Promise<MainPushItem[]>): Promise<void>
 ```
 
 注册主搜索推送回调。当用户输入文本匹配到该 feature 时，Mulby 会调用此回调获取推送项。
@@ -205,7 +205,7 @@ interface MainPushItem {
 [Backend]
 
 ```ts
-features.onMainPushSelect(callback: (action: MainPushAction & { option: MainPushItem }) => boolean | Promise<boolean>)
+features.onMainPushSelect(callback: (action: MainPushAction & { option: MainPushItem }) => boolean | Promise<boolean>): Promise<void>
 ```
 
 注册推送项选中回调。当用户点击推送项时触发。
@@ -231,7 +231,7 @@ module.exports = {
   async run(context) {
     const { features } = context.api;
 
-    features.onMainPush(async (action) => {
+    await features.onMainPush(async (action) => {
       const result = await translate(action.payload);
       return [{
         title: result.translation,
@@ -239,7 +239,7 @@ module.exports = {
       }];
     });
 
-    features.onMainPushSelect(async (action) => {
+    await features.onMainPushSelect(async (action) => {
       await context.api.clipboard.writeText(action.option.title);
       await context.api.notification.show('已复制翻译结果');
       return false; // 不打开 UI
